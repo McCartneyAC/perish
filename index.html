@@ -1,0 +1,487 @@
+<html>
+<head>
+<script src="https://kit.fontawesome.com/fba8a3fc8c.js" crossorigin="anonymous"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Diplomata&family=Lavishly+Yours&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
+  <title>Publish Or Literally Perish</title>
+  <style>
+h1 { font-family: "Diplomata", serif; }
+i { filter: sepia(0.2) }
+
+body {
+  background:
+    radial-gradient(ellipse at center,
+      rgba(0,0,0,0) 60%,
+      rgba(0,0,0,0.08) 100%
+    ),
+    linear-gradient(
+      to bottom,
+      #f4ecd8,
+      #efe3c1,
+      #c6c3b2
+    ),
+    #E8E8C1;
+  color:#2b1f14;
+  font-family: "Raleway", sans-serif;
+}
+
+#energyUI { margin-bottom: 10px; }
+
+#barOuter {
+  width: 260px;
+  height: 14px;
+  border: 1px solid #333;
+  background: #eee;
+  position: relative;
+}
+
+#barInner {
+  height: 100%;
+  width: 100%;
+  background: #4a4a4a;
+  transition: width 0.2s linear, opacity 0.2s linear;
+}
+
+#burnoutLabel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: darkred;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+  </style>
+</head>
+
+<body>
+<header><h1><i class="fa-solid fa-chalkboard-user"></i> Publish or Literally Perish</h1></header>
+
+  <div id="hud" style=" line-height: 1.4; margin-bottom: 10px;"></div>
+
+  <div id="energyUI">
+    <div id="barOuter">
+      <div id="barInner"></div>
+      <div id="burnoutLabel"><em><i class="fa-solid fa-fire"></i> BURNOUT</em></div>
+    </div>
+    <div id="barLabel"></div>
+  </div>
+
+  <button id="study_textbooks"><i class="fa-solid fa-book-open-reader"></i> Study Textbooks</button>
+  <button id="study_papers"><i class="fa-regular fa-newspaper"></i> Read Papers</button>
+  <button id="write" disabled><i class="fa-solid fa-feather-pointed"></i> Write</button>
+  <button id="sat_math" style="display:none;">Take SAT Math</button>
+  <button id="sat_verbal" style="display:none;">Take SAT Verbal</button>
+
+  <script>
+    const LEVELS = [
+      "high school","undergrad","masters","doctoral","postdoc",
+      "adjunct","tenure track","tenured","habilitation","emeritus"
+    ];
+
+    /////////////////////STATE///////////////////////////
+    const state = {
+      // progression
+      levelIndex: 0,
+      level: "high school",
+      landmarksCompleted: 0,
+
+      // core resources
+      knowledge: 0,
+      knowledgePerStudy: 1,
+      drafts: 0,
+      publications: 0,
+      citations: 0,
+      totalDraftsEver: 0,
+      universityPrestige: 0,
+      
+
+      // burnout system
+      energy: 100,
+      maxEnergy: 100,
+      cooldownUntil: 0,
+
+      // academic metrics
+      hIndex: 0,
+      papers: [],
+
+      // milestones (future)
+      apClasses: 0,
+      credits: 0,
+      landmarkInProgress: false,
+      landmarkProgress: 0,
+      landmarkRequired: 0,
+
+      // SAT + college gate
+      satMath: null,
+      satVerbal: null,
+      satAttemptsUsed: 0,
+      collegeAccepted: false,
+
+coffeeUnlocked: false,
+coffeeActiveUntil: 0,
+coffeeCrashPending: false,
+
+      // study group
+   studyGroupUnlocked: false,
+   studyGroupAccMs: 0,
+
+    };
+
+    ///////////////////KNOBS/////////////////////////////
+    const WRITE_GAIN_DRAFTS = 1;
+    const STUDY_BOOST_PER_WRITE = 0.1;
+    const DRAFTS_PER_PUBLICATION = 10;
+
+    const CITATIONS_UNLOCK_PUBS = 3;
+    const TICK_MS = 1000;
+
+    // Study modes + energy costs
+    const TEXTBOOK_ENERGY_COST = 3;
+    const PAPER_ENERGY_COST = 6;
+
+    // Textbook study is FLAT
+    const TEXTBOOK_STUDY_GAIN = 1;
+
+    const WRITE_ENERGY_COST = 8;
+    const ENERGY_REGEN_PER_TICK = 6;
+    const COOLDOWN_MS = 10000;
+
+    // SAT gating + costs
+    const SAT_UNLOCK_KNOWLEDGE = 20;
+    const SAT_MIN_KNOWLEDGE = 35;
+    const SAT_ENERGY_COST = 80;
+
+    // attempts tied to effort
+    const SAT_BASE_ATTEMPTS = 4;
+    const SAT_ATTEMPTS_PER_DRAFTS = 25;
+
+    // SAT score roll tuning
+    const SAT_MEAN = 500;
+    const SAT_SD = 120;
+    const SAT_PREP_SCALE = 120;
+    const SAT_ACCEPT_TOTAL = 1200;
+
+const COFFEE_COST_DRAFTS = 50;       // one-time mokapot purchase
+const COFFEE_DURATION_MS = 30000;    // 30 seconds
+const COFFEE_OVER_CAP = 40;          // max energy becomes 140
+const COFFEE_CRASH_MS = 20000;       // extended burnout
+
+
+    const LEVEL_REQS = [
+      { k: 0,    d: 0,    p: 0,   c: 0,    l: 0 },
+      { k: 40,   d: 25,   p: 0,   c: 0,    l: 0 },
+      { k: 120,  d: 120,  p: 0,   c: 0,    l: 0 },
+      { k: 220,  d: 320,  p: 0,   c: 0,    l: 1 },
+      { k: 320,  d: 520,  p: 3,   c: 0,    l: 2 },
+      { k: 420,  d: 760,  p: 10,  c: 20,   l: 2 },
+      { k: 520,  d: 1050, p: 20,  c: 60,   l: 2 },
+      { k: 650,  d: 1400, p: 35,  c: 140,  l: 2 },
+      { k: 820,  d: 1850, p: 55,  c: 300,  l: 3 },
+      { k: 1000, d: 2400, p: 85,  c: 650,  l: 3 }
+    ];
+
+    ///////////////////DOM REFERENCES/////////////////////////////
+    const hud = document.getElementById("hud");
+    const studyTextBtn = document.getElementById("study_textbooks");
+    const studyPaperBtn = document.getElementById("study_papers");
+    const writeBtn = document.getElementById("write");
+
+    const barInner = document.getElementById("barInner");
+    const burnoutLabel = document.getElementById("burnoutLabel");
+    const barLabel = document.getElementById("barLabel");
+
+    const satMathBtn = document.getElementById("sat_math");
+    const satVerbalBtn = document.getElementById("sat_verbal");
+
+    ///////////////////HELPERS/////////////////////////////
+    function levelName() {
+      return LEVELS[state.levelIndex] || state.level;
+    }
+
+    function canStudyTextbooks() { return state.levelIndex <= 1; }
+    function canStudyPapers() { return state.levelIndex >= 1; }
+
+    function textbookStudyGain() { return TEXTBOOK_STUDY_GAIN; }
+
+    function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+
+function approxNormal(mean, sd) {
+  let s = 0;
+  for (let i = 0; i < 6; i++) s += (Math.random() * 2 - 1);
+  const z = s / 6;
+  return mean + z * sd;
+}
+
+
+    function satPrepBonus() {
+      const x = state.totalDraftsEver;
+      return SAT_PREP_SCALE * Math.log10(1 + state.totalDraftsEver)
+    }
+
+    function satAttemptsMax() {
+      return SAT_BASE_ATTEMPTS + Math.floor(state.totalDraftsEver / SAT_ATTEMPTS_PER_DRAFTS);
+    }
+
+    function satTotal() {
+      const m = state.satMath ?? 0;
+      const v = state.satVerbal ?? 0;
+      return m + v;
+    }
+
+    function inCooldown() { return Date.now() < state.cooldownUntil; }
+
+function act(fn) {
+  const did = fn();
+  if (did) tryLevelUp();
+  render();
+}
+
+
+    function canTakeSAT() {
+      return (
+        state.levelIndex === 0 &&
+        state.knowledge >= SAT_MIN_KNOWLEDGE &&
+        state.energy >= SAT_ENERGY_COST &&
+        state.satAttemptsUsed < satAttemptsMax() &&
+        !inCooldown()
+      );
+    }
+
+    function rollSatSectionScore() {
+      const raw = approxNormal(SAT_MEAN, SAT_SD) + satPrepBonus();
+      return clamp(Math.round(raw), 200, 800);
+    }
+
+    function calcPrestigeFromSAT(totalScore) {
+      const base = clamp((totalScore - 800) / 800, 0, 1) * 100;
+      const jitter = (Math.random() * 20 - 10);
+      return clamp(Math.round(base + jitter), 0, 100);
+    }
+
+    function paperStudyGain() {
+      const mult = 1 + 0.25 * Math.log10(state.publications + 1);
+      return state.knowledgePerStudy * mult;
+    }
+
+    function writeCost() {
+      const x = state.totalDraftsEver;
+      const B = 8;
+      const A = 18;
+      return Math.floor(B + A * Math.log10(x + 1));
+    }
+
+function autoPurchasePublications() {
+  // lock publications until masters
+  if (state.levelIndex < 2) return;
+
+  const purchasable = Math.floor(state.drafts / DRAFTS_PER_PUBLICATION);
+  if (purchasable > 0) {
+    state.drafts -= purchasable * DRAFTS_PER_PUBLICATION;
+    state.publications += purchasable;
+  }
+}
+
+
+    function canLevelUp(nextIndex) {
+      if (nextIndex >= LEVELS.length) return false;
+      const req = LEVEL_REQS[nextIndex];
+
+      if (nextIndex === 1 && !state.collegeAccepted) return false;
+
+      return (
+        state.knowledge >= req.k &&
+        state.totalDraftsEver >= req.d &&
+        state.publications >= req.p &&
+        state.citations >= req.c &&
+        state.landmarksCompleted >= req.l
+      );
+    }
+
+    function tryLevelUp() {
+      while (canLevelUp(state.levelIndex + 1)) {
+        state.levelIndex += 1;
+        state.level = LEVELS[state.levelIndex];
+      }
+    }
+
+    function spendEnergy(cost) {
+      if (inCooldown()) return false;
+      state.energy = Math.max(0, state.energy - cost);
+      if (state.energy === 0) state.cooldownUntil = Date.now() + COOLDOWN_MS;
+      return true;
+    }
+
+function tick() {
+  state.energy = Math.min(state.maxEnergy, state.energy + ENERGY_REGEN_PER_TICK);
+
+  autoPurchasePublications(); // <-- add
+
+if (state.studyGroupUnlocked) {
+  state.studyGroupAccMs += TICK_MS;
+  while (state.studyGroupAccMs >= 10000) {
+    state.studyGroupAccMs -= 10000;
+    state.knowledge += 1;
+  }
+}
+
+  if (state.publications >= CITATIONS_UNLOCK_PUBS) {
+    const rate = 1 + (state.publications - CITATIONS_UNLOCK_PUBS);
+    state.citations += rate;
+  }
+
+  tryLevelUp();
+  render();
+}
+
+
+    ///////////////////RENDER/////////////////////////////
+    function render() {
+      const tGain = textbookStudyGain();
+      const pGain = paperStudyGain();
+
+      writeBtn.disabled = inCooldown() || state.energy <= 0 || state.knowledge < writeCost();
+
+      studyTextBtn.style.display = canStudyTextbooks() ? "inline-block" : "none";
+      studyPaperBtn.style.display = canStudyPapers() ? "inline-block" : "none";
+
+      const satUnlocked = (state.levelIndex === 0 && state.knowledge >= SAT_UNLOCK_KNOWLEDGE);
+      satMathBtn.style.display = satUnlocked ? "inline-block" : "none";
+      satVerbalBtn.style.display = satUnlocked ? "inline-block" : "none";
+
+      const satDisabled = !canTakeSAT();
+      satMathBtn.disabled = satDisabled;
+      satVerbalBtn.disabled = satDisabled;
+
+      const studyDisabled = inCooldown() || state.energy <= 0;
+      studyTextBtn.disabled = studyDisabled;
+      studyPaperBtn.disabled = studyDisabled;
+
+      const pct = (state.energy / state.maxEnergy) * 100;
+      barInner.style.width = pct + "%";
+
+      burnoutLabel.style.opacity = inCooldown() ? "1" : "0";
+
+      // FIXED: only one assignment, valid syntax
+      barLabel.innerHTML = inCooldown()
+        ? `<i class="fa-solid fa-fire"></i> Burnout: ${Math.ceil((state.cooldownUntil - Date.now()) / 1000)}s`
+        : `<i class="fa-solid fa-bed"></i> Energy: ${Math.floor(state.energy)}/${state.maxEnergy}`;
+
+      const next = Math.min(state.levelIndex + 1, LEVELS.length - 1);
+      const req = LEVEL_REQS[next];
+
+      hud.innerHTML = `
+        <div><strong><i class="fa-solid fa-graduation-cap"></i> Level:</strong> ${levelName()}</div>
+        <div><strong><i class="fa-solid fa-brain"></i> Knowledge:</strong> ${Math.floor(state.knowledge)}</div>
+        <div><strong><i class="fa-solid fa-pen-fancy"></i> Write Cost:</strong> ${writeCost()} knowledge</div>
+
+        <div><strong><i class="fa-solid fa-book-open"></i> Textbook Study:</strong> +${tGain.toFixed(1)} knowledge (cost: ${TEXTBOOK_ENERGY_COST} energy)</div>
+        <div><strong><i class="fa-solid fa-glasses"></i> Paper Reading:</strong> +${pGain.toFixed(1)} knowledge (cost: ${PAPER_ENERGY_COST} energy)</div>
+
+
+        <div><strong><i class="fa-solid fa-scroll"></i> Drafts:</strong> ${state.drafts}</div>
+        <div><strong><i class="fa-solid fa-book"></i> Publications:</strong> ${state.publications} (auto-buy: ${DRAFTS_PER_PUBLICATION} drafts)</div>
+        <div><strong><i class="fa-brands fa-mendeley"></i> Citations:</strong> ${state.citations} ${state.publications < CITATIONS_UNLOCK_PUBS ? `(locked until ${CITATIONS_UNLOCK_PUBS} publications)` : ""}</div>
+<div><strong><i class="fa-solid fa-h"></i>-Index:</strong>${state.hIndex}</div>
+<i class="fa-brands fa-google-scholar"></i>
+        <hr>
+        <div><strong>Next:</strong> ${LEVELS[next]}</div>
+        <div>
+          Needs:
+          knowledge ≥ ${req.k},
+          draftsEver ≥ ${req.d},
+          publications ≥ ${req.p},
+          citations ≥ ${req.c},
+          landmarks ≥ ${req.l}
+        </div>
+
+        <div><strong><i class="fa-solid fa-school-flag"></i> SAT (superscore):</strong>
+          Math ${state.satMath ?? "—"} / Verbal ${state.satVerbal ?? "—"} / Total ${satTotal() || "—"}
+        </div>
+        <div><strong><i class="fa-solid fa-list-check"></i> Attempts:</strong>
+          ${state.satAttemptsUsed} / ${satAttemptsMax()}
+        </div>
+        <div><strong><i class="fa-solid fa-building-columns"></i> University Prestige:</strong>
+          ${state.universityPrestige} / 100
+        </div>
+        <div><strong>College Accepted:</strong> ${state.collegeAccepted ? "Yes" : "No"}</div>
+      `;
+    }
+
+    ///////////////////EVENT LISTENERS/////////////////////////////
+    studyTextBtn.addEventListener("click", () => {
+      if (!canStudyTextbooks()) return;
+      if (!spendEnergy(TEXTBOOK_ENERGY_COST)) return;
+      state.knowledge += textbookStudyGain();
+      tryLevelUp();
+      render();
+    });
+
+    studyPaperBtn.addEventListener("click", () => {
+      if (!canStudyPapers()) return;
+      if (!spendEnergy(PAPER_ENERGY_COST)) return;
+      state.knowledge += paperStudyGain();
+      tryLevelUp();
+      render();
+    });
+writeBtn.addEventListener("click", () => act(() => {
+  if (!spendEnergy(WRITE_ENERGY_COST)) return false;
+  const cost = writeCost();
+  if (state.knowledge < cost) return false;
+
+  state.knowledge -= cost;
+  state.drafts += WRITE_GAIN_DRAFTS;
+  state.totalDraftsEver += WRITE_GAIN_DRAFTS;
+  state.knowledgePerStudy += STUDY_BOOST_PER_WRITE / (1 + state.knowledgePerStudy * 0.2);
+  autoPurchasePublications();
+  return true;
+}));
+
+
+    satMathBtn.addEventListener("click", () => {
+      if (!canTakeSAT()) return;
+      if (!spendEnergy(SAT_ENERGY_COST)) return;
+
+      const score = rollSatSectionScore();
+      state.satMath = Math.max(state.satMath ?? 0, score);
+      state.satAttemptsUsed += 1;
+
+      const total = satTotal();
+      if (total >= SAT_ACCEPT_TOTAL) {
+        state.collegeAccepted = true;
+        state.universityPrestige = calcPrestigeFromSAT(total);
+      }
+
+      tryLevelUp();
+      render();
+    });
+
+    satVerbalBtn.addEventListener("click", () => {
+      if (!canTakeSAT()) return;
+      if (!spendEnergy(SAT_ENERGY_COST)) return;
+
+      const score = rollSatSectionScore();
+      state.satVerbal = Math.max(state.satVerbal ?? 0, score);
+      state.satAttemptsUsed += 1;
+
+      const total = satTotal();
+      if (total >= SAT_ACCEPT_TOTAL) {
+        state.collegeAccepted = true;
+        state.universityPrestige = calcPrestigeFromSAT(total);
+      }
+
+      tryLevelUp();
+      render();
+    });
+window.unlockStudyGroup = () => { state.studyGroupUnlocked = true; render(); };
+
+    setInterval(tick, TICK_MS);
+    render();
+  </script>
+</body>
+</html>
