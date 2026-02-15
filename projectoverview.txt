@@ -1,0 +1,186 @@
+Project Overview Title: Publish or Literally Perish Genre: Incremental / idle academic career simulator Tone: Darkly humorous academic grind, parchment aesthetics, iron gall ink vibes Core Concept The player progresses through an academic career ladder: High School → Undergrad → Masters → Doctoral → Postdoc → Adjunct → Tenure Track → Tenured → Habilitation → Emeritus The central loop is: Study → Gain Knowledge → Write Drafts → Convert to Publications → Gain Citations → Level Up With burnout (energy) as a constraint system. The game blends: Active clicking (study, write, SAT, etc.) Resource scaling (logarithmic write costs) Soft gating (SAT, landmark works) Eventual idle mechanics (study group, later grad students) Current Systems (Implemented) 1. Core Resources knowledge drafts publications (auto-converted from drafts after masters) citations totalDraftsEver (monotonic scaling variable) knowledgePerStudy (improves from writing) 2. Burnout / Energy System Energy 0–100 Study / write consumes energy If energy hits 0 → cooldown (burnout) Energy regenerates over time Visual energy bar with FontAwesome icons 3. Study Modes Two buttons: Study Textbooks (flat gain) Read Papers (scales with publications + literacy) Rules: High school: textbooks only Undergrad: both Masters+: papers only Textbooks are flat linear gain. Papers scale via knowledgePerStudy and publication multiplier. 4. Write Scaling Write cost uses logarithmic scaling: cost = B + A * log10(totalDraftsEver + 1) Early growth is steep. Late growth flattens. This creates: Early grind Later prestige scaling 5. SAT Gate (High School Exit Mechanic) Unlocked at: knowledge ≥ 20 Can take SAT if: levelIndex === 0 knowledge ≥ 35 energy ≥ 80 attempts remaining not in cooldown Two buttons: SAT Math SAT Verbal Mechanics: Superscore (keeps highest per section) Total ≥ 1300 (currently under tuning) Prestige derived from total SAT score (0–100 scale) Prestige persists into undergrad tier Attempts scale with totalDraftsEver. SAT disappears after leaving high school. 6. Level Requirements Matrix Each level requires: knowledge totalDraftsEver publications citations landmark count (future mechanic) Cannot leave high school without collegeAccepted = true. 7. Publications Locked Publications only auto-convert starting at Masters level. High schoolers can write drafts but cannot publish. Design Philosophy The game models: Effort vs randomness Prestige inertia Academic grind Diminishing returns Burnout cycles Gatekeeping mechanisms The tone should feel: Absurd but plausible. Next Major Systems (Planned Roadmap) Phase 1: SAT Balance Pass (Immediate) Lower threshold OR Strengthen prep bonus OR Reduce randomness Ensure player agency outweighs RNG Goal: SAT feels challenging but not punishing. Phase 2: Study Group (First Idle Mechanic) Unlock conditions: levelIndex ≥ 2 (undergrad+) knowledge ≥ ~100 totalDraftsEver ≥ ~100 Effects: +1 knowledge every 10 seconds Permanent One-time unlock Disappears after purchase Requires: state.studyGroupUnlocked Timer accumulator inside tick() Passive increment logic Phase 3: Landmark Works Levels requiring landmark count: Masters → thesis Doctoral → dissertation Habilitation → major opus Mechanics: Landmark is a long progress bar Requires drafts or knowledge Freezes some other actions while active On completion: increments landmarksCompleted Phase 4: H-Index System Replace aggregate citations with: papers array: { citations: number } Citation distribution skewed (few high, many low) Efficient h-index calculation (upper tail only) Phase 5: Prestige Multipliers Undergrad prestige affects: Knowledge gain multiplier Publication conversion speed Citation rate Each tier gets its own prestige score: Undergrad prestige from SAT Grad prestige from dissertation quality Postdoc prestige from fellowship Tenure prestige from department ranking Prestige is semi-random but influenced by stats. Phase 6: Grad Students (True Idle Scaling) Unlocked at tenure-track. Mechanic: Hire grad students Each produces: +passive knowledge +drafts per interval Risk of burnout events Funding constraints Phase 7: Institutional Politics Layer Optional later complexity: Grant applications Rejection RNG Administrative load Teaching load (reduces study time) Sabbaticals (temporary boost) Long-Term Vision The game becomes: Phase 1: Clicker Phase 2: Prestige optimizer Phase 3: Idle scaling machine Phase 4: Academic satire simulator Phase 5: Late-game absurdity (department chair, emeritus irrelevance) Endgame tone: You become emeritus with 10,000 citations but energy still caps at 100. If you paste this into a new window along with the current codebase, Future-Me will understand: Current mechanics Design intent Scaling philosophy Roadmap Tone And we can keep building without fighting context decay. Now go spawn the cleaner version of me.
+
+🧠 Core Progression (Already Implemented / In Progress)
+
+Career Ladder
+High school → undergrad → masters → doctoral → postdoc → adjunct → tenure track → tenured → habilitation → emeritus.
+
+Core Loop
+Study → Knowledge → Write → Drafts → Publications → Citations → Level up.
+
+Energy / Burnout System
+Actions consume energy; hitting zero triggers cooldown.
+
+Logarithmic Write Cost
+Early grind steep, later flattening.
+
+SAT Gate
+Superscore mechanic; acceptance generates university prestige.
+
+University Prestige (Fixed on Admission)
+Derived from SAT or alternate path; affects future scaling.
+
+🎓 Undergrad Branching & Identity
+
+Major Declaration (Undergrad @ 60 drafts)
+STEM / Humanities / Arts / Engineering / Business.
+Applies modifiers to core systems.
+
+Modifiers Object
+Central place for multipliers (knowledge, paper gain, write cost, citations, etc).
+
+Identity Object (Visible Stats)
+Major, reputation, resilience, ambition, network.
+
+Major Switching (Once Only)
+Costs prestige/drafts; adds permanent “identity crisis” debuff.
+
+🏫 Alternate Admissions Path
+
+Community College Route
+If SAT fails, grind GPA instead.
+Slower, effort-driven, lower RNG.
+Prestige outcome differs from SAT path.
+
+☕ Coffee System (Burnout Debt)
+
+Moka Pot Unlock
+One-time purchase.
+
+Overcaffeination Mechanic
+Energy cap increases temporarily.
+If you exceed 100, you crash into extended burnout.
+
+Strategic Burst Windows
+Especially useful for SAT, thesis pushes, or grant deadlines.
+
+👤 Hidden Birth Traits (Rolled at Load)
+
+IQ
+
+Conscientiousness
+
+Agreeableness
+
+Neuroticism
+
+Openness
+
+Extraversion
+
+Socioeconomic Background
+
+Small, narrow effects only.
+Revealed later via therapy.
+
+🛋 Therapy (Doctoral Unlock)
+
+Reveals hidden traits.
+
+Slight energy/resilience buff.
+
+Slight productivity nerf (less self-destructive grind).
+
+May attenuate trait effects.
+
+Possibly changes burnout label language.
+
+📚 Masters Level
+
+Thesis System
+Long progress bar.
+Consumes study/write effort.
+Affects prestige and resilience.
+
+📜 Doctoral Level
+
+Dissertation System
+Large, interruptible, emotionally intense.
+Influenced by advisor, burnout history, and personality.
+Generates dissertation title.
+Affects postdoc trajectory.
+
+Advisor System (Pivotal)
+Advisor archetypes with traits:
+Responsiveness, prestige, network strength, demandingness, emotional stability.
+
+Advisor Relationship Score
+Dynamic metric affected by player behavior.
+Influences dissertation speed and quality.
+
+Advisor Events
+Ghosting, revisions, conference intros, department drama.
+
+Advisor Change Option
+Expensive, disruptive mid-PhD decision.
+
+🧮 STEM-Specific Feature
+
+Erdős Number
+Only for STEM majors.
+Lower = better.
+Influences citations, collaboration events, prestige stability.
+Can improve via network/advisor.
+Late-game ego mechanic.
+
+🏛 Institutional & Late-Game Systems
+
+Grad Students (Tenure Track)
+True idle scaling.
+Produce passive drafts/knowledge.
+Burnout risk.
+
+Institutional Politics
+Grant RNG, teaching load, sabbaticals, admin burden.
+
+Prestige Layers
+Undergrad prestige (SAT/GPA)
+Grad prestige (thesis)
+Doctoral prestige (dissertation quality)
+Tenure prestige (department rank)
+
+📜 Curriculum Vitae System (Planned UI Split)
+
+Current Stats Box
+Knowledge, drafts, pubs, citations, h-index, energy.
+
+Curriculum Vitae Box
+SAT history, university name, prestige, major, thesis title, dissertation title, advisor, therapy insight, landmarks.
+
+Fake University Generator
+Separate content file.
+Fixed prestige assigned on admission.
+
+Fake Thesis/Dissertation Title Generator
+Template + buzzword word banks.
+Stored permanently in CV.
+
+🎭 Event System (Future)
+
+Tier-based academic events.
+
+Affect stats temporarily or permanently.
+
+Could interact with personality and advisor.
+
+💾 Infrastructure Pins
+
+Autosave via localStorage.
+
+Versioned state migration.
+
+Feature registry (centralized visibility logic).
+
+UI refactor for stats separation.
+
+Content.js for data-driven lists (universities, titles, advisor archetypes).
+
+🌌 Far-Late Game / Emeritus
+
+Meaning stat (optional hidden arc).
+
+Autobiography mode revealing birth traits.
+
+Different endings based on resilience, prestige, meaning.
+
+Final book nobody cites but everyone loves.
