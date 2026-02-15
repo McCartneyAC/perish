@@ -1,14 +1,95 @@
 // state.js
-    const LEVELS = [
-      "high school","undergrad","masters","doctoral","postdoc",
-      "adjunct","tenure track","tenured","habilitation","emeritus"
-    ];
+
+
+const LEVELS = [
+  {
+    id: "highschool",
+    label: "high school",
+    req: { k: 0, d: 0, p: 0, c: 0, h: 0, l: 0 },
+    gates: {},
+    tip: "To be accepted to college, you must receive a sufficient SAT score."
+  },
+
+  {
+    id: "undergrad",
+    label: "undergrad",
+    req: { k: 40, d: 25, p: 0, c: 0, h: 0, l: 0 },
+    gates: { satTotal: 1200 },
+    tip: "To be accepted to a master's program, you must earn a sufficient GRE score."
+  },
+
+  {
+    id: "masters",
+    label: "masters",
+    req: { k: 120, d: 120, p: 0, c: 0, h: 0, l: 0 },
+    gates: {},
+    tip: "To be accepted to a doctoral program, you must complete a master's thesis."
+  },
+
+  {
+    id: "doctoral",
+    label: "doctoral",
+    req: { k: 220, d: 320, p: 0, c: 0, h: 0, l: 1 },
+    gates: { dissertationDefense: true },
+    tip: "To earn your PhD, you must pass your dissertation defense."
+  },
+
+  {
+    id: "postdoc",
+    label: "postdoc",
+    req: { k: 320, d: 520, p: 3, c: 0, h: 0, l: 2 },
+    gates: {},
+    tip: "To earn an adjunct position, write your first 3 papers."
+  },
+
+  {
+    id: "adjunct",
+    label: "adjunct",
+    req: { k: 420, d: 760, p: 10, c: 20, h: 0, l: 2 },
+    gates: {},
+    tip: "To find a tenure-track job, accumulate citations in major papers."
+  },
+
+  {
+    id: "tenuretrack",
+    label: "tenure track",
+    req: { k: 520, d: 1050, p: 20, c: 60, h: 5, l: 2 },
+    gates: { tenureReview: true },
+    tip: "To earn tenure, you must pass departmental review."
+  },
+
+  {
+    id: "tenured",
+    label: "tenured",
+    req: { k: 650, d: 1400, p: 35, c: 140, h: 25, l: 2 },
+    gates: {},
+    tip: "To earn habilitation, you must write a significant landmark work."
+  },
+
+  {
+    id: "habilitation",
+    label: "habilitation",
+    req: { k: 820, d: 1850, p: 55, c: 300, h: 50, l: 3 },
+    gates: {},
+    tip: "To become professor emeritus, your reputation must be undeniable."
+  },
+
+  {
+    id: "emeritus",
+    label: "emeritus",
+    req: { k: 1000, d: 2400, p: 85, c: 650, h: 150, l: 3 },
+    gates: {},
+    tip: "There is nothing left to prove. Wait for your Nobel Prize."
+  }
+];
 
     /////////////////////STATE///////////////////////////
     const state = {
       // progression
       levelIndex: 0,
-      level: "high school",
+
+      level: LEVELS[0].label,
+
       landmarksCompleted: 0,
 
       // core resources
@@ -144,16 +225,3 @@ const SES_PRESTIGE_JITTER_MAX = 6;       // shifts prestige jitter by ±6 points
 
 
 const MAJOR_DECLARE_DRAFTS = 60;
-
-    const LEVEL_REQS = [
-      { k: 0,    d: 0,    p: 0,   c: 0,    l: 0 },
-      { k: 40,   d: 25,   p: 0,   c: 0,    l: 0 },
-      { k: 120,  d: 120,  p: 0,   c: 0,    l: 0 },
-      { k: 220,  d: 320,  p: 0,   c: 0,    l: 1 },
-      { k: 320,  d: 520,  p: 3,   c: 0,    l: 2 },
-      { k: 420,  d: 760,  p: 10,  c: 20,   l: 2 },
-      { k: 520,  d: 1050, p: 20,  c: 60,   l: 2 },
-      { k: 650,  d: 1400, p: 35,  c: 140,  l: 2 },
-      { k: 820,  d: 1850, p: 55,  c: 300,  l: 3 },
-      { k: 1000, d: 2400, p: 85,  c: 650,  l: 3 }
-    ];

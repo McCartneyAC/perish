@@ -75,7 +75,7 @@ majBusBtn.addEventListener("click",  () => declareMajor("Business"));
       render();
     });
 
-hud.addEventListener("click", (e) => {
+hudOther.addEventListener("click", (e) => {
   if (e.target && e.target.id === "join_study_group") {
     const tier = eligibleStudyGroupTier();
     if (joinStudyGroup(tier)) {
@@ -84,5 +84,4 @@ hud.addEventListener("click", (e) => {
   }
 });
 
-    setInterval(tick, TICK_MS);
-    initNewGame();
+

@@ -1,12 +1,41 @@
 //helpers.js
     ///////////////////HELPERS/////////////////////////////
-    function levelName() {
-      return LEVELS[state.levelIndex] || state.level;
-    }
+
+/// Level system ///////////////////////////////////////////////////
+function levelName() {
+  return LEVELS[state.levelIndex]?.label || state.level;
+}
+function canLevelUp(nextIndex) {
+  const nextLevel = LEVELS[nextIndex];
+  if (!nextLevel) return false;   // critical
+
+  const req = nextLevel.req;
+  if (!req) return false;
+
+  if (nextIndex === 1 && !state.collegeAccepted) return false;
+
+  return (
+    state.knowledge >= req.k &&
+    state.totalDraftsEver >= req.d &&
+    state.publications >= req.p &&
+    state.citations >= req.c &&
+    state.hIndex >= (req.h ?? 0) &&
+    state.landmarksCompleted >= req.l
+  );
+}
+function tryLevelUp() {
+  while (canLevelUp(state.levelIndex + 1)) {
+    state.levelIndex += 1;
+    state.level = LEVELS[state.levelIndex].label; // store label, not object
+  }
+}
+
+// studying and writing /////////////////////////////////
 
     function canStudyTextbooks() { return state.levelIndex <= 1; }
     function canStudyPapers() { return state.levelIndex >= 1; }
 
+// math functions//////////////////////////////////////
 
     function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 function rand01() { return Math.random(); }
@@ -15,6 +44,7 @@ function randInt(lo, hi) { // inclusive
   return Math.floor(lo + rand01() * (hi - lo + 1));
 }
 
+/// traits ///////////////////////////////////////////
 function rollTrait0to100() {
   return clamp(Math.round(rand01() * 100), 0, 100);
 }
@@ -215,27 +245,6 @@ function effectiveCooldownMs() {
   return Math.floor(BASE_COOLDOWN_MS * clamp(mult, 0.6, 1.8));
 }
 
-    function canLevelUp(nextIndex) {
-      if (nextIndex >= LEVELS.length) return false;
-      const req = LEVEL_REQS[nextIndex];
-
-      if (nextIndex === 1 && !state.collegeAccepted) return false;
-
-      return (
-        state.knowledge >= req.k &&
-        state.totalDraftsEver >= req.d &&
-        state.publications >= req.p &&
-        state.citations >= req.c &&
-        state.landmarksCompleted >= req.l
-      );
-    }
-
-    function tryLevelUp() {
-      while (canLevelUp(state.levelIndex + 1)) {
-        state.levelIndex += 1;
-        state.level = LEVELS[state.levelIndex];
-      }
-    }
 
 function spendEnergy(cost) {
   if (inCooldown()) return false;
@@ -263,50 +272,4 @@ function joinStudyGroup(tier) {
     return true;
   }
   return false;
-}
-
-function tick() {
-  state.energy = Math.min(state.maxEnergy, state.energy + ENERGY_REGEN_PER_TICK);
-
-  autoPurchasePublications(); // <-- add
-
-const nGroups = studyGroupCount();
-if (nGroups > 0) {
-  state.studyGroupAccMs += TICK_MS;
-
-  // base 1 knowledge per 10s, compounded by groups
-  const basePer10s = 1;
-  const compound = Math.pow(1.1, nGroups);
-
-  // extraversion bonus-only (same spirit as your current code)
-  const e = traitCentered((state.traits || {}).extraversion ?? 50);
-  const extraMult = 1 + EXTRAVERSION_GROUP_MAX * Math.max(0, e);
-
-  // agreeableness perk placeholder (tweak later):
-  // agreeable people get +5% per group (bonus-only, mild)
-  const a = traitCentered((state.traits || {}).agreeableness ?? 50);
-  const agreeMult = 1 + 0.05 * nGroups * Math.max(0, a);
-
-  const per10s = basePer10s * compound * extraMult * agreeMult;
-
-  while (state.studyGroupAccMs >= 10000) {
-    state.studyGroupAccMs -= 10000;
-    state.knowledge += per10s;
-  }
-}
-
-
-  if (state.publications >= CITATIONS_UNLOCK_PUBS) {
-    const rate = 1 + (state.publications - CITATIONS_UNLOCK_PUBS);
-    state.citations += rate;
-  }
-
-
-  tryLevelUp();
-  render();
-}
-
-function initNewGame() {
-  rollBirthTraitsIfNeeded();
-  render();
 }

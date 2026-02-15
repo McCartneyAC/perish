@@ -49,8 +49,10 @@ function render() {
       )}/${state.maxEnergy}`;
 
   // Next-level requirements
-  const next = Math.min(state.levelIndex + 1, LEVELS.length - 1);
-  const req = LEVEL_REQS[next];
+const nextIndex = Math.min(state.levelIndex + 1, LEVELS.length - 1);
+const nextLevel = LEVELS[nextIndex];
+const req = nextLevel.req;
+const curLevel = LEVELS[state.levelIndex];
 
   //
 // CURRENT
@@ -72,22 +74,28 @@ hudCurrent.innerHTML = `
   }</div>
 
   <div><strong><i class="fa-solid fa-h"></i>-Index:</strong> ${state.hIndex}</div>
-  <div><i class="fa-brands fa-google-scholar"></i></div>
+  <div><!--<i class="fa-brands fa-google-scholar"></i>--></div>
 `;
 
 // CV
 hudCV.innerHTML = `
   <div><strong><i class="fa-solid fa-graduation-cap"></i> Level:</strong> ${levelName()}</div>
-  <div><strong>Next:</strong> ${LEVELS[next]}</div>
+<div><strong>Next:</strong> ${nextLevel ? nextLevel.label : "—"}</div>
 
+${curLevel?.tip ? `<div style="margin-top:6px; font-style:italic;">${curLevel.tip}</div>` : ""}
+
+${req ? `
   <div style="margin-top:6px;">
     Needs:<br>
     knowledge &ge; ${req.k},<br>
     draftsEver &ge; ${req.d},<br>
     publications &ge; ${req.p},<br>
     citations &ge; ${req.c},<br>
+    h-index &ge; ${req.h ?? 0},<br>
     landmarks &ge; ${req.l}
   </div>
+` : `<div style="margin-top:6px;">You are at the final level.</div>`}
+
 
 
 
@@ -98,7 +106,7 @@ hudCV.innerHTML = `
   ${
     state.levelIndex === 0
       ? `
-        <div><strong><i class="fa-solid fa-list-check"></i> Attempts:</strong>
+        <div><strong><i class="fa-solid fa-list-check"></i> SAT Attempts:</strong>
           ${state.satAttemptsUsed} / ${satAttemptsMax()}
         </div>
       `
