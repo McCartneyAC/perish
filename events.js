@@ -25,7 +25,6 @@ writeBtn.addEventListener("click", () => act(() => {
   state.drafts += WRITE_GAIN_DRAFTS;
   state.totalDraftsEver += WRITE_GAIN_DRAFTS;
   state.knowledgePerStudy += STUDY_BOOST_PER_WRITE / (1 + state.knowledgePerStudy * 0.2);
-  autoPurchasePublications();
   return true;
 }));
 
@@ -53,6 +52,7 @@ majHumBtn.addEventListener("click",  () => declareMajor("Humanities"));
 majArtsBtn.addEventListener("click", () => declareMajor("Arts"));
 majEngBtn.addEventListener("click",  () => declareMajor("Engineering"));
 majBusBtn.addEventListener("click",  () => declareMajor("Business"));
+majSocBtn.addEventListener("click", () => declareMajor("Social Science"));
 
 
 
@@ -74,6 +74,69 @@ majBusBtn.addEventListener("click",  () => declareMajor("Business"));
       tryLevelUp();
       render();
     });
+
+
+// GRE (undergrad -> masters gate)
+greQuantBtn.addEventListener("click", () => {
+  if (!canTakeGRE()) return;
+  if (!spendEnergy(GRE_ENERGY_COST)) return;
+
+  const score = rollGreSectionScore();
+  state.greQuant = Math.max(state.greQuant ?? 0, score);
+  state.greAttemptsUsed += 1;
+
+  const total = greTotal();
+  if (total >= GRE_ACCEPT_TOTAL) {
+    state.mastersAccepted = true;
+    state.universityPrestige = calcPrestigeFromGRE(total);
+  }
+
+  tryLevelUp();
+  render();
+});
+
+greVerbalBtn.addEventListener("click", () => {
+  if (!canTakeGRE()) return;
+  if (!spendEnergy(GRE_ENERGY_COST)) return;
+
+  const score = rollGreSectionScore();
+  state.greVerbal = Math.max(state.greVerbal ?? 0, score);
+  state.greAttemptsUsed += 1;
+
+  const total = greTotal();
+  if (total >= GRE_ACCEPT_TOTAL) {
+    state.mastersAccepted = true;
+    state.universityPrestige = calcPrestigeFromGRE(total);
+  }
+
+  tryLevelUp();
+  render();
+});
+
+// Publications (doctoral+)
+pubConferenceBtn.addEventListener("click", () => {
+  if (publishPaper("conference")) {
+    render();
+  }
+});
+
+pubJournalBtn.addEventListener("click", () => {
+  if (publishPaper("journal")) {
+    render();
+  }
+});
+
+pubChapterBtn.addEventListener("click", () => {
+  if (publishPaper("chapter")) {
+    render();
+  }
+});
+
+pubMonographBtn.addEventListener("click", () => {
+  if (publishPaper("monograph")) {
+    render();
+  }
+});
 
 hudOther.addEventListener("click", (e) => {
   if (e.target && e.target.id === "join_study_group") {

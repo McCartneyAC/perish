@@ -128,6 +128,13 @@ function rebuildModifiers() {
     case "Arts":
       state.modifiers.energyRegenMult *= 1.03;
       break;
+    case "Social Science":
+  // Reads broadly, cites obsessively, decent at extracting meaning from papers
+     state.modifiers.paperMult *= 1.05;
+     state.modifiers.knowledgeMult *= 1.02;
+     state.modifiers.citationMult *= 1.08;
+     break;
+
   }
 }
 
@@ -138,11 +145,28 @@ function shouldPromptMajor() {
     state.identity?.major === "undeclared"
   );
 }
+
 function declareMajor(majorName) {
   state.identity.major = majorName;
+
+  // Social Science perk: +5 agreeableness (cap at 100) and reveal trait labels (not values)
+  if (majorName === "Social Science") {
+    state.traits.agreeableness = clamp(
+      (state.traits.agreeableness ?? 50) + 5,
+      0,
+      100
+    );
+
+    // Only upgrade visibility, never downgrade (therapy can later set "values")
+    if ((state.traits.visibility ?? "hidden") === "hidden") {
+      state.traits.visibility = "labels";
+    }
+  }
+
   rebuildModifiers();
   render();
 }
+
 
 
 
@@ -200,6 +224,46 @@ function calcPrestigeFromSAT(totalScore) {
   const sesShift = SES_PRESTIGE_JITTER_MAX * ses; // low SES nudges down, high nudges up
 
   const jitter = (Math.random() * 20 - 10) + sesShift;
+  return clamp(Math.round(base + jitter), 0, 100);
+}
+
+// GRE parallels SAT (modern GRE: 130–170 per section, total 260–340)
+function grePrepBonus() {
+  return GRE_PREP_SCALE * Math.log10(1 + state.totalDraftsEver);
+}
+
+function greAttemptsMax() {
+  return GRE_BASE_ATTEMPTS + Math.floor(state.totalDraftsEver / GRE_ATTEMPTS_PER_DRAFTS);
+}
+
+function greTotal() {
+  const q = state.greQuant ?? 0;
+  const v = state.greVerbal ?? 0;
+  return q + v;
+}
+
+function canTakeGRE() {
+  return (
+    state.levelIndex === 1 &&
+    state.knowledge >= GRE_MIN_KNOWLEDGE &&
+    state.energy >= GRE_ENERGY_COST &&
+    state.greAttemptsUsed < greAttemptsMax() &&
+    !inCooldown()
+  );
+}
+
+function rollGreSectionScore() {
+  const raw = approxNormal(GRE_MEAN, GRE_SD) + grePrepBonus();
+  return clamp(Math.round(raw), 130, 170);
+}
+
+function calcPrestigeFromGRE(totalScore) {
+  const base = clamp((totalScore - 260) / 80, 0, 1) * 100;
+
+  const ses = traitCentered((state.traits || {}).ses ?? 50);
+  const sesShift = SES_PRESTIGE_JITTER_MAX * ses;
+
+  const jitter = (Math.random() * 14 - 7) + sesShift;
   return clamp(Math.round(base + jitter), 0, 100);
 }
 
@@ -272,4 +336,70 @@ function joinStudyGroup(tier) {
     return true;
   }
   return false;
+}
+
+///////////////////PUBLICATIONS (papers[])/////////////////////////////
+
+function canPublish(type) {
+  if (state.levelIndex < PUB_UNLOCK_LEVEL) return false;
+  if (inCooldown()) return false;
+  if (state.energy < PUB_ENERGY_COST) return false;
+
+  const cost = PUB_COST[type];
+  if (!cost) return false;
+
+  return state.drafts >= cost.drafts && state.knowledge >= cost.knowledge;
+}
+
+function computePaperQuality() {
+  // Snapshot quality at publication time. Keep it mostly skill-driven, lightly random.
+  const knowledgeFactor = clamp(state.knowledge / 500, 0, 1);
+  const prestigeFactor = clamp(state.universityPrestige / 100, 0, 1);
+  const experienceFactor = clamp(Math.log10(1 + state.totalDraftsEver) / 3, 0, 1);
+  const randomness = 0.9 + Math.random() * 0.2; // 0.9–1.1
+
+  const score =
+    40 * knowledgeFactor +
+    30 * prestigeFactor +
+    20 * experienceFactor +
+    10 * randomness;
+
+  return clamp(Math.round(score), 0, 100);
+}
+
+function publishPaper(type) {
+  if (!canPublish(type)) return false;
+  if (!spendEnergy(PUB_ENERGY_COST)) return false;
+
+  const cost = PUB_COST[type];
+  state.drafts -= cost.drafts;
+  state.knowledge -= cost.knowledge;
+
+  const quality = computePaperQuality();
+  state.papers.push({
+    type,
+    citations: 0,
+    ageTicks: 0,
+    quality
+  });
+
+  // keep legacy counters in sync for now
+  state.publications = state.papers.length;
+  return true;
+}
+
+function majorMultiplier(major, type) {
+  const table = {
+    STEM:        { conference: 1.10, journal: 1.08, chapter: 0.92, monograph: 0.90 },
+    Humanities:  { conference: 0.92, journal: 0.95, chapter: 1.10, monograph: 1.12 },
+    Engineering: { conference: 1.12, journal: 1.03, chapter: 0.90, monograph: 0.88 },
+    Business:    { conference: 1.00, journal: 1.08, chapter: 1.02, monograph: 0.95 },
+    Arts:        { conference: 0.95, journal: 0.95, chapter: 1.08, monograph: 1.05 },
+    "Social Science": { conference: 1.00, journal: 1.05, chapter: 1.05, monograph: 1.00 }
+  };
+  return table[major]?.[type] ?? 1;
+}
+
+function qualityMult(q) {
+  return 0.7 + 0.6 * (clamp(q, 0, 100) / 100); // 0.7x–1.3x
 }

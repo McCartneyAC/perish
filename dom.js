@@ -19,6 +19,16 @@ const hudOther = document.getElementById("hud_other");
     const satMathBtn = document.getElementById("sat_math");
     const satVerbalBtn = document.getElementById("sat_verbal");
 
+    const greQuantBtn = document.getElementById("gre_quant");
+    const greVerbalBtn = document.getElementById("gre_verbal");
+
+// publication system
+const pubUI = document.getElementById("pubUI");
+const pubConferenceBtn = document.getElementById("pub_conference");
+const pubJournalBtn = document.getElementById("pub_journal");
+const pubChapterBtn = document.getElementById("pub_chapter");
+const pubMonographBtn = document.getElementById("pub_monograph");
+
 
 
 // major system.
@@ -28,5 +38,6 @@ const majHumBtn  = document.getElementById("maj_hum");
 const majArtsBtn = document.getElementById("maj_arts");
 const majEngBtn  = document.getElementById("maj_eng");
 const majBusBtn  = document.getElementById("maj_bus");
+const majSocBtn = document.getElementById("maj_soc");
 
 

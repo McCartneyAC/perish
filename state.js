@@ -83,6 +83,162 @@ const LEVELS = [
   }
 ];
 
+
+// ================= CLUBS (Undergrad identity fork) =================
+// Effects are intentionally SMALL (mostly 3–8%).
+// Philosophy: clubs bend slopes; they don’t print free resources.
+// Wiring happens later in joinClub() + rebuildModifiers().
+
+const CLUBS = {
+  robotics: {
+    id: "robotics",
+    label: "Join Robotics Team",
+    blurb: "Competitions, late nights, and a suspicious amount of solder fumes.",
+    effects: {
+      modifiersMult: {
+        knowledgeMult: 1.06,
+        paperMult: 1.04,
+        energyRegenMult: 0.95
+      },
+      traitDelta: {
+        conscientiousness: +2,
+        extraversion: -1
+      },
+      // optional later: publication-type leaning
+      pubTypeMult: {
+        conference: 1.06,
+        journal: 1.02,
+        chapter: 0.98,
+        monograph: 0.95
+      }
+    }
+  },
+
+  lab: {
+    id: "lab",
+    label: "Join a Research Lab",
+    blurb: "You become the undergrad RA in someone else's grant narrative.",
+    effects: {
+      modifiersMult: {
+        paperMult: 1.06,
+        knowledgeMult: 1.02,
+        writeCostMult: 1.04
+      },
+      traitDelta: {
+        conscientiousness: +2,
+        neuroticism: +2
+      },
+      pubTypeMult: {
+        conference: 1.03,
+        journal: 1.06,
+        chapter: 0.98,
+        monograph: 0.95
+      },
+      // used later when we compute paper quality at publish time
+      paperQualityBonus: +5
+    }
+  },
+
+  greek: {
+    id: "greek",
+    label: "Join the Greek System",
+    blurb: "Social capital, alumni networks, and a calendar that belongs to other people now.",
+    effects: {
+      modifiersMult: {
+        energyRegenMult: 0.95,
+        citationMult: 1.03
+      },
+      traitDelta: {
+        extraversion: +3,
+        neuroticism: +2,
+        agreeableness: +1
+      },
+      // later: used for admissions / advisor selection / job market
+      networkDelta: +12,
+      // mild prestige halo you can apply on joining (if you want later)
+      prestigeDelta: +2,
+      pubTypeMult: {
+        conference: 1.02,
+        journal: 1.02,
+        chapter: 1.00,
+        monograph: 0.98
+      }
+    }
+  },
+
+  theater: {
+    id: "theater",
+    label: "Join Theater / Band",
+    blurb: "Rehearsals, performances, and the rare skill of not combusting onstage.",
+    effects: {
+      modifiersMult: {
+        energyRegenMult: 1.08,
+        writeCostMult: 0.98,
+        knowledgeMult: 0.97
+      },
+      traitDelta: {
+        extraversion: +2,
+        resilience: +3 // if you later want to map this to identity stats
+      },
+      pubTypeMult: {
+        conference: 0.98,
+        journal: 0.98,
+        chapter: 1.02,
+        monograph: 1.03
+      }
+    }
+  },
+
+  gov: {
+    id: "gov",
+    label: "Join Student Government",
+    blurb: "Meetings. Motions. Committees. A taste of administrative gravity.",
+    effects: {
+      modifiersMult: {
+        energyRegenMult: 0.97,
+        paperMult: 0.96
+      },
+      traitDelta: {
+        extraversion: +1,
+        agreeableness: +2,
+        neuroticism: +1
+      },
+      networkDelta: +8,
+      // later: can boost grant odds / reduce admin penalties
+      grantAptitudeBonus: +8,
+      pubTypeMult: {
+        conference: 1.00,
+        journal: 1.02,
+        chapter: 1.02,
+        monograph: 1.00
+      }
+    }
+  },
+
+  litmag: {
+    id: "litmag",
+    label: "Join Literary Magazine",
+    blurb: "Workshop nights, editorial bloodsport, and sentences that actually sing.",
+    effects: {
+      modifiersMult: {
+        writeCostMult: 0.94,
+        knowledgeMult: 1.02,
+        paperMult: 0.98
+      },
+      traitDelta: {
+        openness: +3,
+        neuroticism: +1
+      },
+      pubTypeMult: {
+        conference: 0.95,
+        journal: 0.98,
+        chapter: 1.08,
+        monograph: 1.10
+      }
+    }
+  }
+};
+
     /////////////////////STATE///////////////////////////
     const state = {
       // progression
@@ -124,6 +280,12 @@ const LEVELS = [
       satAttemptsUsed: 0,
       collegeAccepted: false,
 
+      // GRE + masters gate
+      greQuant: null,
+      greVerbal: null,
+      greAttemptsUsed: 0,
+      mastersAccepted: false,
+
 coffeeUnlocked: false,
 coffeeActiveUntil: 0,
 coffeeCrashPending: false,
@@ -162,7 +324,8 @@ traits: {
   openness: 0,
   agreeableness: 0,
   ses: 0,
-  revealed: false
+  rolled: false,
+  visibility: "hidden" // "hidden" | "labels" | "values"
 }
 
 
@@ -202,13 +365,38 @@ traits: {
     const SAT_PREP_SCALE = 120;
     const SAT_ACCEPT_TOTAL = 1200;
 
+    // GRE gating + costs (modern GRE 130-170 per section; total 260-340)
+    const GRE_UNLOCK_KNOWLEDGE = 90;
+    const GRE_MIN_KNOWLEDGE = 110;
+    const GRE_ENERGY_COST = 80;
+
+    const GRE_BASE_ATTEMPTS = 3;
+    const GRE_ATTEMPTS_PER_DRAFTS = 60;
+
+    const GRE_MEAN = 150;
+    const GRE_SD = 8;
+    const GRE_PREP_SCALE = 8;
+    const GRE_ACCEPT_TOTAL = 310;
+
+    // Publications (papers[]) — unlock at doctoral
+    const PUB_UNLOCK_LEVEL = 3; // doctoral
+    const MONOGRAPH_UNLOCK_LEVEL = 5; // adjunct (adjunct -> tenure track gate later)
+    const PUB_ENERGY_COST = 25;
+
+    const PUB_COST = {
+      conference: { drafts: 12, knowledge: 0 },
+      journal:    { drafts: 20, knowledge: 15 },
+      chapter:    { drafts: 16, knowledge: 5 },
+      monograph:  { drafts: 60, knowledge: 80 }
+    };
+
 const COFFEE_COST_DRAFTS = 50;       // one-time mokapot purchase
 const COFFEE_DURATION_MS = 30000;    // 30 seconds
 const COFFEE_OVER_CAP = 40;          // max energy becomes 140
 const COFFEE_CRASH_MS = 20000;       // extended burnout
 
 const BASE_COOLDOWN_MS = 10000;          // replace COOLDOWN_MS usage with this
-const STUDY_GROUP_BASE_COST = 40;        // whatever you’re using now
+
 
 // Trait effect strengths (keep tiny)
 const IQ_STUDY_MAX = 0.08;               // up to ±8% study gain
