@@ -181,3 +181,111 @@ button:nth-child(even) {
   transform: rotate(0.15deg);
 }
 
+
+/* ── Landmark panel ─────────────────────────────────────────────────── */
+#hud_landmark {
+  background: rgba(250, 248, 235, 0.7);
+  border: 1px solid #9a8f73;
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin: 10px 20px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1), inset 0 0 12px rgba(0,0,0,0.02);
+}
+
+.landmark-label {
+  font-family: "Diplomata", serif;
+  font-size: 1.05em;
+  color: #2b1f14;
+  margin-bottom: 8px;
+}
+
+.landmark-bar-outer {
+  width: 100%;
+  height: 16px;
+  background: #e8dcc2;
+  border: 1px solid #6f6348;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.landmark-bar-inner {
+  height: 100%;
+  background: linear-gradient(to bottom, #6b8c5a, #4a6b3a);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  position: relative;
+}
+
+.landmark-bar-inner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255,255,255,0.07),
+    rgba(255,255,255,0.07) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  pointer-events: none;
+}
+
+.landmark-description {
+  font-style: italic;
+  color: #5a4a35;
+  font-size: 0.9em;
+  margin-bottom: 10px;
+}
+
+.landmark-warning {
+  color: #8b2000;
+  font-size: 0.88em;
+  margin-bottom: 8px;
+}
+
+.landmark-actions {
+  margin-top: 6px;
+}
+
+.landmark-action-btn {
+  font-family: "Raleway", sans-serif;
+  background: linear-gradient(to bottom, #e8d9b5, #d4c090);
+  border: 1px solid #7a6840;
+  border-radius: 3px;
+  padding: 6px 14px;
+  margin-right: 6px;
+  cursor: pointer;
+  color: #2b1f14;
+  font-size: 0.95em;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: all 0.1s ease;
+}
+
+.landmark-action-btn:hover:not(:disabled) {
+  background: linear-gradient(to bottom, #dccaa0, #c4b080);
+  border-color: #5a4820;
+}
+
+.landmark-action-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.landmark-action-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.landmark-sources {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85em;
+  color: #5a4a35;
+}
+
+.landmark-source + .landmark-source {
+  margin-left: 14px;
+}

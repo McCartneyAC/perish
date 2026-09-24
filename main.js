@@ -1,47 +1,56 @@
-// main.js
+// main.js — initialization only
+// Loads save, bootstraps state, wires events, starts loop.
 
-const SAVE_KEY = "pop_save_v1";
+"use strict";
 
-function saveGame() {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.warn("Save failed:", e);
+// Shuffle foundational text unlock thresholds so each run feels different.
+// Builds a map of { perkId -> unlocksAt } and stores it on window so
+// visibleWhen functions can read it. Called once per session (not per save).
+function shuffleFoundationalTexts() {
+  const thresholds = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115];
+  const ids = Object.entries(window.PERKS ?? {})
+    .filter(([, p]) => p.category === "foundational_text")
+    .map(([id]) => id);
+
+  // Fisher-Yates shuffle of thresholds
+  for (let i = thresholds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [thresholds[i], thresholds[j]] = [thresholds[j], thresholds[i]];
   }
+
+  window.FOUNDATIONAL_TEXT_THRESHOLDS = {};
+  ids.forEach((id, i) => {
+    window.FOUNDATIONAL_TEXT_THRESHOLDS[id] = thresholds[i] ?? 20;
+  });
 }
 
-function loadGame() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
+document.addEventListener("DOMContentLoaded", () => {
 
-    const saved = JSON.parse(raw);
+  // Try to load saved game (migrated + deep-merged); fall back to fresh state
+  const loaded = loadGame();
+  if (!loaded) window.state = cloneState(DEFAULT_STATE);
 
-    // merge into existing state object (do NOT replace const state)
-    Object.assign(state, saved);
+  // Paper tier histograms need a fixed shape (one 151-slot array per tier)
+  ensurePaperTiers();
 
-    // defensive defaults if older saves are missing fields
-    state.papers = state.papers || [];
-    state.studyGroups = state.studyGroups || { undergrad: false, masters: false, doctoral: false };
-    state.modifiers = state.modifiers || {
-      knowledgeMult: 1, paperMult: 1, writeCostMult: 1, citationMult: 1, energyRegenMult: 1
-    };
-    state.identity = state.identity || { major: "undeclared", reputation: 50, resilience: 50, ambition: 50, network: 50 };
-    state.traits = state.traits || {};
+  // Shuffle foundational text unlock order for this session
+  shuffleFoundationalTexts();
 
-    return true;
-  } catch (e) {
-    console.warn("Load failed (starting new game):", e);
-    return false;
-  }
-}
+  // Roll birth traits if this is a new game or traits weren't saved
+  rollBirthTraitsIfNeeded();
 
-// Try load first. If no save, initialize new game.
-const loaded = loadGame();
-if (!loaded) initNewGame();
+  // Build modifier cache from loaded affiliations/traits
+  rebuildModifiers();
 
-// Autosave frequently (every tick is fine for a small game)
-setInterval(() => {
-  tick();
-  saveGame();
-}, TICK_MS);
+  // Start this level's landmark if a save arrived here without it running
+  ensureLevelLandmark();
+
+  // Wire all button event listeners
+  wireEvents();
+
+  // Initial render before loop starts
+  render();
+
+  // Start the tick loop
+  startGameLoop();
+});

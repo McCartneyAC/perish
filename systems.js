@@ -1,125 +1,174 @@
-//systems.js
+// systems.js — game loop and autosave
+// Runs on a fixed tick interval. No DOM access here — that's render.js.
 
-///////////////////PUBLICATION CITATIONS ENGINE///////////////////////
+"use strict";
 
-const PUBLICATION_TYPES = {
-  conference: { baseRate: 0.35, lag: 8,  rise: 25 },
-  journal:    { baseRate: 0.45, lag: 18, rise: 60 },
-  chapter:    { baseRate: 0.25, lag: 22, rise: 80 },
-  monograph:  { baseRate: 0.60, lag: 50, rise: 180 }
-};
+const SAVE_KEY = "polp_save_v1";   // storage key stays fixed; the version lives inside the save
+const CURRENT_SAVE_VERSION = DEFAULT_STATE.saveVersion;
 
-function ramp(age, lag, rise) {
-  if (age <= lag) return 0;
-  return clamp((age - lag) / rise, 0, 1);
-}
+// Tick counter lives here, not in state — it's runtime bookkeeping, not progress.
+let tickCount = 0;
 
-function visibilityMult() {
-  return 1 + 0.01 * (state.universityPrestige || 0);
-}
-
-function noise() {
-  return 0.9 + Math.random() * 0.2; // 0.9–1.1
-}
-
-function calcHIndex(papers) {
-  const citations = (papers || [])
-    .map(p => Math.floor(p.citations || 0))
-    .sort((a, b) => b - a);
-
-  let h = 0;
-  for (let i = 0; i < citations.length; i++) {
-    if (citations[i] >= i + 1) h = i + 1;
-    else break;
-  }
-  return h;
-}
-
-function tickCitations() {
-  const papers = state.papers || [];
-  if (papers.length === 0) {
-    state.publications = 0;
-    state.citations = 0;
-    state.hIndex = 0;
-    return;
-  }
-
-  const vis = visibilityMult();
-  const major = state.identity?.major;
-
-  for (const paper of papers) {
-    const prof = PUBLICATION_TYPES[paper.type];
-    if (!prof) continue;
-
-    paper.ageTicks = (paper.ageTicks || 0) + 1;
-
-    const r = ramp(paper.ageTicks, prof.lag, prof.rise);
-    const q = paper.quality ?? 50;
-
-    const delta =
-      prof.baseRate *
-      r *
-      vis *
-      qualityMult(q) *
-      majorMultiplier(major, paper.type) *
-      noise();
-
-    paper.citations = (paper.citations || 0) + delta;
-  }
-
-  // Keep legacy counters in sync for now
-  state.publications = papers.length;
-  state.citations = papers.reduce((sum, p) => sum + (p.citations || 0), 0);
-  state.hIndex = calcHIndex(papers);
-}
-
+// ── Game tick ─────────────────────────────────────────────────────────
 function tick() {
-  state.energy = Math.min(state.maxEnergy, state.energy + ENERGY_REGEN_PER_TICK);
+  // Energy regeneration (respects burnout cooldown)
+  if (!inCooldown()) {
+    const regenRate = ENERGY_REGEN_PER_TICK * (state.modifiers?.energyRegenMult ?? 1);
+    state.energy = Math.min(ENERGY_MAX, state.energy + regenRate);
+  }
 
+  // Passive perk ticks (study groups, etc.)
+  tickPerks();
+
+  // Milestone events: drop stale picks, offer one if a newly eligible event appeared
+  maybeSelectMilestone();
+
+  // Citation accumulation
   tickCitations();
 
-const nGroups = studyGroupCount();
-if (nGroups > 0) {
-  state.studyGroupAccMs += TICK_MS;
+  // Citations grow on their own, so check for promotion once a second
+  if (tickCount % 10 === 0) tryLevelUp();
 
-  // base 1 knowledge per 5s, compounded by groups
-  const basePer5s = 1;
-  const compound = Math.pow(1.1, nGroups);
+  // Landmark decay and advisor notes
+  tickLandmarkDecay();
+  maybeFireAdvisorNote();
 
-  // extraversion bonus-only (same spirit as your current code)
-  const e = traitCentered((state.traits || {}).extraversion ?? 50);
-  const extraMult = 1 + EXTRAVERSION_GROUP_MAX * Math.max(0, e);
+  // Autosave every 300 ticks (~30 seconds)
+  tickCount += 1;
+  if (tickCount % 300 === 0) saveGame();
 
-  // agreeableness perk placeholder (tweak later):
-  // agreeable people get +5% per group (bonus-only, mild)
-  const a = traitCentered((state.traits || {}).agreeableness ?? 50);
-  const agreeMult = 1 + 0.05 * nGroups * Math.max(0, a);
+  render();
+}
 
-  const per5s = basePer5s * compound * extraMult * agreeMult;
+// ── Save migration ────────────────────────────────────────────────────
+// A save is loaded in two passes:
+//   1. migrateSave() walks it from its saveVersion up to CURRENT_SAVE_VERSION,
+//      running MIGRATIONS[v] to get from v to v+1. A missing entry is a no-op.
+//   2. deepMerge() lays it over a fresh DEFAULT_STATE, so any field added to
+//      DEFAULT_STATE since the save was written gets its default value.
+//
+// Adding a field → no migration needed, the merge handles it.
+// Renaming, moving, or deleting a field → bump saveVersion in state.js and
+// add a migration here. The merge keeps keys it doesn't recognise (it has to:
+// perks, flags, and the like are open-ended maps), so removed fields only go
+// away if a migration deletes them.
 
+const MIGRATIONS = {
+  // v1 → v2: baseline for the modularization refactor. Nothing to transform;
+  // the tick counter moved out of state, so drop the stale copy.
+  1: (s) => {
+    delete s._tickCount;
+    return s;
+  },
 
-   //sanity saver /////////////////
-  localStorage.setItem("pop_save", JSON.stringify(state));
+  // v2 → v3: one citation histogram became one per quality tier. Papers from
+  // before tiers existed keep their citations and count as "competent" (tier 1).
+  // ensurePaperTiers() pads everything to full shape after the merge.
+  2: (s) => {
+    s.papers = isPlainObject(s.papers) ? s.papers : {};
+    if (!Array.isArray(s.papers.tiers)) {
+      const old = Array.isArray(s.papers.buckets) ? s.papers.buckets : [];
+      s.papers.tiers = [[], old.slice()];
+    }
+    delete s.papers.buckets;
+    return s;
+  }
+};
 
-  while (state.studyGroupAccMs >= 5000) {
-    state.studyGroupAccMs -= 5000;
-    state.knowledge += per5s;
+function isPlainObject(x) {
+  return x !== null && typeof x === "object" && !Array.isArray(x);
+}
+
+// Walk the default's shape, taking the save's value wherever it fits.
+//  - objects: recurse key by key; keep any extra keys the save has
+//  - arrays:  the save's array wins whole (never merged index by index)
+//  - null defaults: nullable slots (ids, scores) — the save's value wins
+//  - primitives: the save wins if it has the same type, else the default
+function deepMerge(def, saved) {
+  if (saved === undefined) return cloneState(def);
+
+  if (isPlainObject(def)) {
+    if (!isPlainObject(saved)) return cloneState(def);
+    const out = {};
+    for (const key of Object.keys(def))   out[key] = deepMerge(def[key], saved[key]);
+    for (const key of Object.keys(saved)) if (!(key in def)) out[key] = saved[key];
+    return out;
   }
 
+  if (Array.isArray(def)) return Array.isArray(saved) ? saved : cloneState(def);
+  if (def === null)       return saved;
+  return typeof saved === typeof def ? saved : def;
 }
 
-
-  tryLevelUp();
-  render();
+function migrateSave(saved) {
+  let v = Number.isInteger(saved.saveVersion) ? saved.saveVersion : 1;
+  if (v > CURRENT_SAVE_VERSION) {
+    console.warn(`Save is from a newer version (v${v} > v${CURRENT_SAVE_VERSION}); loading anyway.`);
+    return saved;
+  }
+  while (v < CURRENT_SAVE_VERSION) {
+    const step = MIGRATIONS[v];
+    if (typeof step === "function") saved = step(saved) ?? saved;
+    v += 1;
+    saved.saveVersion = v;
+  }
+  return saved;
 }
 
-function initNewGame() {
-const saved = localStorage.getItem("pop_save");
-if (saved) {
-  Object.assign(state, JSON.parse(saved));
+// ── Save / Load ───────────────────────────────────────────────────────
+function saveGame() {
+  try {
+    state.lastSaved = Date.now();
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn("Save failed:", e);
+  }
 }
 
+function loadGame() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(SAVE_KEY);
+  } catch (e) {
+    console.warn("Load failed (storage unavailable):", e);
+    return false;
+  }
+  if (!raw) return false;
+
+  try {
+    const saved = JSON.parse(raw);
+    if (!isPlainObject(saved)) throw new Error("save is not an object");
+
+    // Keep a copy of the pre-migration save, one per old version, so a bad
+    // migration never costs a playtest save.
+    const fromVersion = Number.isInteger(saved.saveVersion) ? saved.saveVersion : 1;
+    if (fromVersion < CURRENT_SAVE_VERSION) {
+      localStorage.setItem(`${SAVE_KEY}_backup_v${fromVersion}`, raw);
+    }
+
+    window.state = deepMerge(DEFAULT_STATE, migrateSave(saved));
+    window.state.saveVersion = CURRENT_SAVE_VERSION;
+    return true;
+  } catch (e) {
+    // Don't let the next autosave silently overwrite an unreadable save.
+    try { localStorage.setItem(`${SAVE_KEY}_unreadable_${Date.now()}`, raw); } catch (_) {}
+    console.warn("Load failed; starting fresh. The unreadable save was kept under a backup key.", e);
+    return false;
+  }
+}
+
+function resetGame() {
+  localStorage.removeItem(SAVE_KEY);
+  window.state = cloneState(DEFAULT_STATE);
+  ensurePaperTiers();
   rollBirthTraitsIfNeeded();
-
+  rebuildModifiers();
   render();
+}
+
+let tickInterval = null;
+
+function startGameLoop() {
+  if (tickInterval) clearInterval(tickInterval);
+  tickInterval = setInterval(tick, TICK_MS);
 }

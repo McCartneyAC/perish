@@ -6,64 +6,62 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Diplomata&family=Lavishly+Yours&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
-  <title>Publish Or Literally Perish</title>
+<title>Publish Or Literally Perish</title>
 
-
+<!-- Load order matters: content → state → helpers → systems → render → events → main -->
+<script defer src="content.js"></script>
 <script defer src="state.js"></script>
 <script defer src="helpers.js"></script>
 <script defer src="systems.js"></script>
-<script defer src="dom.js"></script>
 <script defer src="render.js"></script>
 <script defer src="events.js"></script>
 <script defer src="main.js"></script>
-
-
 </head>
 
 <body>
-<header><h1><i class="fa-solid fa-chalkboard-user"></i> Publish or Literally Perish</h1></header>
+<header>
+  <h1><i class="fa-solid fa-chalkboard-user"></i> Publish or Literally Perish</h1>
+</header>
 
 <div id="dashboard">
+
   <div class="panel" id="panel_current">
     <h2>Current Stats</h2>
     <div id="hud_current"></div>
   </div>
 
   <div class="panel" id="panel_cv">
-    <h2>Curriculum Vitae</h2>
+    <h2>Curriculum Vitæ</h2>
     <div id="hud_cv"></div>
   </div>
 
-  <div class="panel" id="panel_other">
-    <h2>Other</h2>
-<button id="sat_math" style="display:none;">Take SAT Math</button>
-  <button id="sat_verbal" style="display:none;">Take SAT Verbal</button>
-
-  <button id="gre_quant" style="display:none;">Take GRE Quant</button>
-  <button id="gre_verbal" style="display:none;">Take GRE Verbal</button>
-
-  <div id="pubUI" style="margin-top:12px; display:none; border: solid 1px #2b1f14; padding:8px;">
-    <div><strong>Publish:</strong></div>
-    <button id="pub_conference">Conference Paper</button>
-    <button id="pub_journal">Journal Article</button>
-    <button id="pub_chapter">Edited Chapter</button>
-    <button id="pub_monograph" style="display:none;">Monograph</button>
-  </div>
-
-<div id="majorUI" style="margin-top:12px; display:none; border: solid 1px #2b1f14;">
-  <div><strong>Declare a major:</strong></div><br>
-  <button id="maj_stem">Declare STEM</button><br>
-  <button id="maj_hum">Declare Humanities</button><br>
-  <button id="maj_arts">Declare Arts</button><br>
-  <button id="maj_eng">Declare Engineering</button><br>
-  <button id="maj_bus">Declare Business</button><br>
-  <button id="maj_soc">Declare Social Science</button><br>
-</div>
+  <div class="panel" id="panel_other" style="max-width: 500px;">
+    <h2>Actions</h2>
+    <!-- Publish UI — shown/hidden by render.js -->
+    <div id="pubUI" style="display:none; margin-top:12px; border: solid 1px #2b1f14; padding:8px;">
+      <div><strong>Publish:</strong></div>
+    </div>
+    <!-- All other dynamic buttons (tests, clubs, majors, perks)
+         are created and injected here by render.js -->
     <div id="hud_other"></div>
   </div>
+
 </div>
 
-  <!--<div id="hud" style=" line-height: 1.4; margin-bottom: 10px;"></div>-->
+<!-- Active landmark bar — shown only when a landmark is in progress -->
+<div id="hud_landmark" style="display:none; margin: 12px 20px;"></div>
+
+<!-- Advisor note modal — shown when advisor note fires during a landmark -->
+<div id="advisor_modal" style="display:none;">
+  <div id="advisor_modal_inner">
+    <div id="advisor_modal_header">
+      <i class="fa-solid fa-user-tie"></i> Your Advisor
+    </div>
+    <div id="advisor_modal_text"></div>
+    <button id="advisor_modal_dismiss">Acknowledged.</button>
+  </div>
+</div>
+
 <footer>
   <div id="energyUI">
     <div id="barOuter">
@@ -74,12 +72,23 @@
   </div>
 
   <button id="study_textbooks"><i class="fa-solid fa-book-open-reader"></i> Study Textbooks</button>
-  <button id="study_papers"><i class="fa-regular fa-newspaper"></i> Read Papers</button>
+  <button id="study_papers"><i class="fa-regular fa-newspaper"></i> Read Journals</button>
   <button id="write" disabled><i class="fa-solid fa-feather-pointed"></i> Write</button>
-  </footer>
-  <script>
 
+  <!-- Dev options — remove before shipping -->
+  <button id="dev_traits" style="opacity:0.4; float:right; margin-right: 10px;">🧠 Traits</button>
+  <button id="dev_reset" style="opacity:0.4; float:right;">↺ Reset</button>
+</footer>
 
-  </script>
+<!-- Dev inspector modal — live view of hidden state. Remove before shipping. -->
+<div id="traitsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+  <div style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; color:#ddd; padding:20px; border-radius:8px; width:min(480px, 92vw); max-height:80vh; overflow-y:auto; font-family:monospace; font-size:12px;">
+    <div style="margin-bottom:15px; font-weight:bold; font-size:14px;">Dev Inspector (live)</div>
+    <div id="traitsContent" style="white-space:pre-wrap; line-height:1.5;"></div>
+    <button id="dev_toggle_therapy" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Toggle therapy flag</button>
+    <button id="closeTraitsModal" style="margin-top:15px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Close</button>
+  </div>
+</div>
+
 </body>
 </html>

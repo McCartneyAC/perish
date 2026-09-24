@@ -1,0 +1,271 @@
+# Publish or Literally Perish — Modularization Overhaul Plan
+
+**Handoff document.** Written for the next Claude instance that will execute
+this refactor. Andrew (the author) will attach this alongside the codebase
+in a fresh conversation and set you to work. Read the whole document before
+touching code.
+
+---
+
+## Context you need
+
+The codebase is a browser-based idle/incremental academic career simulator.
+Career ladder: high school → undergrad → masters → doctoral → postdoc →
+adjunct → tenure track → tenured → habilitation → emeritus. Core loop is
+study → knowledge → write → drafts → publish → citations → level up. Energy
+constrains actions; burnout cooldown when energy hits zero.
+
+The architecture is *partially* modular. `content.js` is a data registry
+for LEVELS, TESTS, ACTIONS, CLUBS, MAJORS, PERKS, LANDMARKS, GATES.
+`helpers.js` holds the dispatcher functions (`doAction`, `joinAffiliation`,
+`unlockPerk`, `tryLevelUp`, `takeTest`). `render.js` reads from state and
+content and emits DOM. `events.js` wires clicks. `systems.js` runs the tick
+loop and save/load. `state.js` holds `DEFAULT_STATE` and initializes
+`window.state`.
+
+The partial-modularity problem: adding a new content type (say, research
+journals as a new affiliation kind) currently requires editing four files.
+`rebuildModifiers` hardcodes `[window.CLUBS, window.MAJORS]`. Event
+delegation hardcodes those same names. Render functions are duplicated per
+type (`renderTestButtons`, `renderPublishButtons`, `renderAffiliationButtons`,
+`renderPerkButtons` — all the same shape). Landmark completion translates
+landmark ids to flag names via a hardcoded map. The trait→modifier wiring
+is four inline lines. Save load is a shallow `Object.assign`, so adding any
+field to `DEFAULT_STATE` silently drops that field from existing saves.
+
+## The immediate playtest bug (fix as part of the work, not separately)
+
+The masters thesis landmark starts and shows a progress bar with no buttons
+under it. `renderLandmark` reads `def.actions` off the landmark, but no
+landmark in `content.js` declares an `actions` object. The original design
+was `progressSources` (write action gives 2.0 progress, study_papers gives
+0.5) — normal footer clicks would advance the landmark bar passively. But
+`advanceLandmark(actionId)` in `helpers.js` is stubbed to return false with
+a comment saying "landmark progress now handled by doLandmarkAction." Two
+half-implementations, both dead. Users get a bar and nothing to click.
+
+The fix is part of the landmark rewrite below, not a one-off patch.
+
+## The unifying principle
+
+Data objects know how to render themselves and how to apply themselves.
+Right now the data describes itself but the engine still switches on type.
+The endgame is: engine iterates registries, calls `obj.canApply(state)` and
+`obj.apply(state)` without caring what kind of thing it's looking at. New
+content types become additive — drop a file in, register it, done.
+
+## Priority ordering
+
+Do these in order. Each step should leave the game in a playable state.
+Andrew is going to playtest between steps, so don't chain refactors that
+break the game for multiple steps at a time.
+
+### Step 1 — Save migration (do this first, before anything else)
+
+Without versioned migration, every subsequent step risks silently
+corrupting Andrew's playtest saves. Current `loadGame` in `systems.js` does
+`Object.assign(cloneState(DEFAULT_STATE), saved)` — a shallow merge that
+means any new field on a nested object gets whatever the save has, not the
+new default.
+
+Build:
+- Deep-merge helper that walks DEFAULT_STATE, and for any object-typed key
+  present in the default but missing or partial in the save, fills from
+  the default recursively.
+- Version field on state (`saveVersion`, already exists in DEFAULT_STATE as
+  `1`).
+- Registry of migration functions keyed by version. `migrate(saved)` walks
+  from `saved.saveVersion` up to current, applying each in sequence.
+- On load, if `saveVersion` is missing or lower than current, run
+  migrations, then deep-merge against current DEFAULT_STATE.
+
+Don't invent migrations retroactively — bump to version 2 at the start of
+this refactor and treat that as the baseline. Old saves get deep-merged
+against DEFAULT_STATE only.
+
+### Step 2 — Fix landmark advancement (unblocks playtesting)
+
+Restore the `progressSources` route. In `doAction`, after applying effects,
+if a landmark is active, look up `def.progressSources[actionId]` and add
+that to `state.landmarkProgress` (multiplied by any relevant modifiers).
+Remove the `advanceLandmark` stub. Remove the `def.actions` render path in
+`renderLandmark` — the landmark bar renders with no action buttons, and
+progress comes from the footer buttons the player already uses.
+
+This is the "interruption model" from the design discussion earlier this
+year: click your normal buttons, landmark bar fills in the background,
+modals fire during the landmark to make the choices meaningful. That
+matches the design intent Andrew converged on.
+
+Also fix: `masters_thesis` (and probably others) have `knowledgeThreshold`
+checks in the completion code path but no threshold declared on the data.
+Either declare thresholds on the landmark definitions or remove the check.
+Andrew's call — ask before deciding.
+
+### Step 3 — Registry generalization
+
+Introduce `window.REGISTRIES` as an array (or map) that anything with a
+`visibleWhen`/`effects` shape can register itself into. Migrate CLUBS,
+MAJORS, PERKS to declare their registry kind on themselves rather than
+living in named globals. Keep the named globals as views into the unified
+registry for now — do not break existing content.js references.
+
+Then:
+- `rebuildModifiers` iterates all registries, not just `[CLUBS, MAJORS]`.
+- A single `renderRegistry(registryFilter, container, opts)` replaces the
+  four per-type render functions. Each entry declares how it wants to be
+  rendered via a `renderAs` field (`"button"`, `"button_with_author"`, etc.)
+  or a `renderFn` override.
+- Event delegation loops registered entries and matches on id prefix.
+
+Result: adding research journals is one file — a new content module
+declaring the JOURNALS registry, its entries, and slot. No edits to
+helpers/render/events.
+
+### Step 4 — Trait→modifier table
+
+Move the four inline lines in `rebuildModifiers` (IQ→knowledgeMult,
+conscientiousness→writeCostMult, neuroticism→energyRegenMult,
+openness→paperMult) into a `TRAIT_MODIFIERS` table in content.js:
+
+```js
+window.TRAIT_MODIFIERS = [
+  { trait: "iq",                target: "knowledgeMult",   scale: IQ_KNOWLEDGE_MAX,   direction: +1, transform: iqTransform },
+  { trait: "conscientiousness", target: "writeCostMult",   scale: CONSC_WRITE_MAX,    direction: -1 },
+  // ...
+];
+```
+
+`rebuildModifiers` iterates the table. New traits from therapy or events
+become one-line additions.
+
+### Step 5 — Level and gate cleanup
+
+Move the `landmarkMap` in `tryLevelUp` onto the level definitions
+themselves: each level declares `autoStartLandmark: "masters_thesis"`.
+Move the `flagMap` in `completeLandmark` onto the landmark definitions:
+each landmark declares `setsFlag: "mastersThesisCompleted"`. Engine reads,
+doesn't translate.
+
+Consolidate the three copies of the write cost formula
+(`helpers.writeCost`, `ACTIONS.write.canDo`, `ACTIONS.write.cost`) into
+one helper called from all three.
+
+### Step 6 — Landmark system rewrite (the big one)
+
+This is the module that most needs the overhaul. Wire in the modal system.
+
+Current landmark shape stays (phases, progressSources, artifact) but adds:
+- `modals`: reference to the modal bank in `landmark_modals.js` (already
+  written last session; sitting in `/mnt/user-data/outputs/`. Andrew will
+  attach it.)
+- `qualityWeights`: object mapping variable names to weights (should sum
+  to 1, or normalize at compute time).
+- `setsFlag`: the flag name to flip on completion.
+- `scoresheet`: a per-landmark accumulator in state, holding all the
+  modal-choice deltas. Lives at `state.activeLandmarkScoresheet` when a
+  landmark is running.
+
+Modal firing loop (in `systems.js` tick):
+- If a landmark is active and no modal is currently open, roll every N
+  ticks for a modal fire (`MODAL_FIRE_PROBABILITY` per tick, tunable so
+  cadence averages one modal per 60-90 seconds of real time).
+- Filter the landmark's modal bank by current phase and any `fires_when`
+  gate. Weight by `weight` field. Filter out `once: true` modals already
+  fired.
+- Present via a modal DOM element (there's already an `advisor_modal` in
+  index.html — repurpose or add a new one).
+- On option click, apply the effects deltas to the scoresheet, mark the
+  modal as fired if `once`.
+
+Completion:
+- When landmark bar fills, call the landmark's `computeQuality(scoresheet)`
+  function.
+- Normalize each variable to 0-1, apply weights, sum to a 0-100 quality
+  score.
+- Write to the CV artifact. Apply any downstream state effects (e.g.
+  dissertation quality feeds into `universityPrestige` bumps at job
+  market time).
+- Set the flag. Clear the scoresheet.
+
+The variable schema from the modal writing session (last session's chat
+history if Andrew still has it, or reproducible from the modal file):
+
+Universal: `progress`, `mentalHealth`, `network`
+Common: `rigor`, `originality`, `prestige`, `scope`
+Thesis/dissertation: `advisorRelationship`, `committeeFavor`, `fieldPositioning`
+Monograph: `editorRelationship`, `audienceReach`, `theoreticalDepth`, `marketability`
+Job market: `applicationFit`, `talkQuality`, `interviewPoise`, `hiddenLuck`
+Tenure: `dossierStrength`, `collegialFavor`, `externalReputation`, `serviceLoad`
+Habilitation: `legacy`, `fieldStanding`, `mentorshipNetwork`, `finalSynthesis`
+
+Some of these will consolidate after playtesting. Don't try to nail the
+weights in theory — ship dumb v1 with roughly equal weights (0.2 each on
+the top 5 variables per landmark, or similar) and let Andrew tune.
+
+### Step 7 — Cleanup pass
+
+- Feature registry in state.js for centralized visibility logic.
+- Fake university generator (mentioned in the roadmap; content file for
+  university name banks).
+- Dev tools: a debug panel showing current scoresheet values during a
+  landmark, so Andrew can see what his choices are doing.
+- Consider whether `EVENTS` (stubbed) and modals are actually the same
+  system — probably yes, just different scope. If so, unify.
+
+## What NOT to do
+
+- Do not rewrite the tone or copy of any modal, level tip, blurb, or level
+  requirement. Andrew wrote those and they carry the game's voice.
+- Do not add features from the roadmap that aren't listed here (advisor
+  archetypes, coffee/moka pot, therapy, birth trait reveals, Erdős number,
+  grad students). Those are separate design work, not part of this
+  refactor.
+- Do not touch the SAT/GRE tuning. That was tuned last spring.
+- Do not add TypeScript, a build system, or a framework. This is a plain
+  browser project with `defer` script tags and Andrew wants to keep it
+  that way.
+- Do not change the file structure without asking. Andrew knows where
+  things are.
+
+## Style notes for interacting with Andrew
+
+- Andrew is a teacher in Kyiv with a stats/research background. He wants
+  substantive engagement, not hand-holding. Push back on design decisions
+  you disagree with.
+- He prefers markdown delivered as raw source in a code block by default,
+  not rendered.
+- He doesn't want time estimates or schedule guesses. Don't tell him how
+  long anything will take.
+- One Ukrainian word per response, in context so the meaning is clear.
+- No "load-bearing" — he flagged it as a Claude tell.
+
+## Files currently in the repo
+
+```
+content.js    — data registries (LEVELS, TESTS, ACTIONS, CLUBS, MAJORS, PERKS, LANDMARKS, GATES, PUB_COST)
+state.js      — DEFAULT_STATE and window.state initialization
+helpers.js    — dispatchers and pure logic (doAction, joinAffiliation, unlockPerk, takeTest, tryLevelUp, calcHIndex, landmark helpers)
+systems.js    — tick loop, save/load, resetGame
+render.js     — all DOM emission
+events.js     — click wiring, mostly delegation
+main.js       — DOMContentLoaded bootstrap
+index.html    — dashboard layout, footer buttons, advisor modal shell
+styles.css    — parchment/ink aesthetic
+```
+
+Also arriving from last session, sitting unwired:
+```
+landmark_modals.js  — modal banks for all six landmarks, ~94 modals total
+```
+
+## Final note to the receiving instance
+
+Andrew has been away from this project for a while and is picking it back
+up. The immediate blocker is the master's thesis being unclickable, so his
+appetite is real but his patience for a long silent refactor is not
+infinite. Ship step 1 and step 2 together as the first commit so the game
+is playable again, then work through the rest in order with playtest
+checkpoints. Show your work.
+
+Хай щастить.
