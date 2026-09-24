@@ -77,6 +77,7 @@ const DEFAULT_STATE = {
     tierSpread:         0,
     grantChance:        0,
     gradMorale:         0,
+    gradSpeedMult:      1,
     reviewSelfCite:     0
   },
 
@@ -109,6 +110,14 @@ const DEFAULT_STATE = {
 
   money:  0,   // dollars; can go negative if your lab outspends you
   debt:   0,   // student loans; accrue interest, repaid from salary after the PhD
+
+  lab: {
+    funds:      0,       // restricted: grants, startup, self-funding. Pays students, gear, studies
+    space:      0,       // index into LAB_SPACES
+    items:      {},      // LAB_ITEMS id → true once bought
+    studiesRun: 0
+  },
+  phdPrestige: null,     // your PhD program's prestige; later moves are measured from it
 
   editorGoodwill: 0,     // from reviewing; spent to tilt your next publication upward
   gradStudents:   [],    // { name, quirk, ageTicks, progress, morale }
@@ -168,7 +177,8 @@ const DEFAULT_STATE = {
   // Permanent record. Written to on landmark completion and key events.
   // Never modified by resource deltas.
   cv: {
-    universityName:   null,   // generated on college admission
+    universityName:   null,   // current institution; regenerated at each move until tenure track
+    institutions:     [],     // [{ level, name }] — every place you've been
     satScore:         null,
     greScore:         null,
     major:            null,

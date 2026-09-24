@@ -103,6 +103,7 @@ function rebuildModifiers() {
   m.tierSpread         = 0;
   m.grantChance        = 0;
   m.gradMorale         = 0;
+  m.gradSpeedMult      = 1;
   m.reviewSelfCite     = 0;
   m.pubTypeMult        = { conference: 1, journal: 1, chapter: 1, monograph: 1 };
 
@@ -129,6 +130,12 @@ function rebuildModifiers() {
     if (perk?.effects) applyAffiliationModifiers(perk);
   }
 
+  // Lab equipment you own
+  for (const id of Object.keys(state.lab?.items ?? {})) {
+    const item = window.LAB_ITEMS?.[id];
+    if (item?.modifiers) applyModifierTable(m, item.modifiers, false);
+  }
+
   // Student debt wears you down (neuroticism makes it worse)
   m.energyRegenMult *= 1 - debtStress();
 
@@ -143,19 +150,26 @@ function traitPosition(trait) {
   return traitCentered(t[trait] ?? 50);
 }
 
-// Applies TRAIT_EFFECTS (content.js): "…Mult" keys multiply, others add.
+// Applies TRAIT_EFFECTS (content.js), each scaled by where the trait sits
 function applyTraitEffects(m) {
   for (const [trait, effects] of Object.entries(window.TRAIT_EFFECTS ?? {})) {
-    const x = traitPosition(trait);
-    for (const [key, value] of Object.entries(effects)) {
-      const parts  = key.split(".");
-      let target   = m;
-      for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]];
-      const leaf   = parts[parts.length - 1];
-      if (typeof target?.[leaf] !== "number") continue;
-      if (leaf.endsWith("Mult")) target[leaf] *= 1 + value * x;
-      else                       target[leaf] += value * x;
-    }
+    applyModifierTable(m, effects, true, traitPosition(trait));
+  }
+}
+
+// Shared by traits and lab gear. Keys may be dotted ("pubTypeMult.conference").
+// Scaled tables (traits):   "…Mult" × (1 + value·x),  others + value·x
+// Unscaled tables (gear):   "…Mult" × value,          others + value
+function applyModifierTable(m, table, scaled, x = 1) {
+  for (const [key, value] of Object.entries(table)) {
+    const parts = key.split(".");
+    let target  = m;
+    for (let i = 0; i < parts.length - 1; i++) target = target?.[parts[i]];
+    const leaf  = parts[parts.length - 1];
+    if (typeof target?.[leaf] !== "number") continue;
+    const isMult = leaf.endsWith("Mult") || parts.length > 1;   // pubTypeMult.* entries are multipliers
+    if (isMult) target[leaf] *= scaled ? 1 + value * x : value;
+    else        target[leaf] += scaled ? value * x : value;
   }
 }
 
@@ -400,6 +414,18 @@ function canTakeTest(testId) {
     (ts.attemptsUsed ?? 0) < testAttemptsMax(testId) &&
     !inCooldown()
   );
+}
+
+// Why you can't take a test right now ("" if you can)
+function testBlockReason(testId) {
+  const def = window.TESTS?.[testId];
+  if (!def) return "";
+  const ts = state.tests[testId] || {};
+  if (inCooldown())                                         return "Burned out.";
+  if ((ts.attemptsUsed ?? 0) >= testAttemptsMax(testId))    return "No attempts left. Write more to earn another.";
+  if (state.knowledge < (def.minKnowledge ?? 0))            return `Needs ${def.minKnowledge} knowledge.`;
+  if (state.energy < (def.energyCost ?? 0))                 return `Needs ${def.energyCost} energy.`;
+  return "";
 }
 
 function takeTest(testId, sectionId) {
@@ -800,10 +826,16 @@ function tickLandmarkDecay() {
   if (Date.now() - (state.landmarkLastProgressAt ?? 0) < grace) return;
 
   const floor = currentLandmarkPhase(def).start;
-  state.landmarkProgress = Math.max(
-    floor,
-    state.landmarkProgress - (window.LANDMARK_DECAY_PER_TICK ?? 0.01)
-  );
+  const perTick = def.totalProgress * (window.LANDMARK_DECAY_PER_SEC ?? 0) * TICK_MS / 1000;
+  state.landmarkProgress = Math.max(floor, state.landmarkProgress - perTick);
+}
+
+// True while neglect is actively costing progress (for the "slipping" cue)
+function landmarkSlipping() {
+  const def = activeLandmarkDef();
+  if (!def || inCooldown()) return false;
+  if (Date.now() - (state.landmarkLastProgressAt ?? 0) < (window.LANDMARK_DECAY_GRACE_MS ?? 0)) return false;
+  return state.landmarkProgress > currentLandmarkPhase(def).start;
 }
 
 // Called every tick — random chance to fire an advisor note
@@ -981,6 +1013,12 @@ function pushNews(text) {
   if (state.news.length > NEWS_MAX) state.news.length = NEWS_MAX;
 }
 
+// A fresh game starts with a line of story instead of an empty card
+function seedOpeningNews() {
+  if (state.news?.length || state.levelIndex !== 0 || (state.totalDraftsEver ?? 0) > 0) return;
+  pushNews(OPENING_NEWS);
+}
+
 // Knowledge from one round of paper reading — the unit reviews and theft scale by
 function paperReadingGain() {
   const draftScale = 1 + 0.6 * Math.sqrt(state.totalDraftsEver ?? 0);
@@ -1002,20 +1040,37 @@ function onDraftsGained(n) {
 
 // Arriving at a new level (called once per level passed)
 function onEnterLevel(index) {
-  if (index === 1 || index === 2) {
-    assignUniversity();
-    const split = tuitionSplit(1);
-    pushNews(`Welcome to ${state.cv.universityName}. Tuition is $${fmtMoney(tuitionPerCredit())} a credit; `
-           + `family covers ${Math.round(split.family * 100)}%, aid ${Math.round(split.aid * 100)}%.`);
+  // Every stage through the tenure track is a new institution
+  if (index >= 1 && index <= TENURE_TRACK_LEVEL) {
+    moveInstitution(index);
+    const name = state.cv.universityName;
+    if (index <= 2) {
+      const split = tuitionSplit(1);
+      pushNews(`Welcome to ${name}. Tuition is $${fmtMoney(tuitionPerCredit())} a credit; `
+             + `family covers ${Math.round(split.family * 100)}%, aid ${Math.round(split.aid * 100)}%. The rest is loans.`);
+    } else {
+      pushNews((ARRIVAL_NEWS[index] ?? "You've moved to {name}.")
+        .replace("{name}", name).replace("{startup}", fmtMoney(TT_STARTUP_FUNDS)));
+    }
   }
   if (index === TENURE_TRACK_LEVEL) {
+    state.lab.funds += TT_STARTUP_FUNDS;
+    state.lab.startupGranted = true;
     state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
-    pushNews(`The tenure clock has started. ${TENURE_CLOCK_YEARS} years.`);
   }
   if (index === TENURE_TRACK_LEVEL + 1) {
     state.timers.tenureClock = null;
     pushNews("Tenure! Nobody can fire you now, except possibly the board of trustees.");
   }
+}
+
+function draftsPerWrite() {
+  return (window.LEVELS?.[state.levelIndex]?.draftsPerWrite ?? 1) * WRITE_GAIN_DRAFTS;
+}
+
+// High school year, 1 (freshman) to 4 (senior), from drafts written
+function hsYear(s = state) {
+  return clamp(Math.floor((s.totalDraftsEver ?? 0) / (HS_DRAFTS / 4)) + 1, 1, 4);
 }
 
 // =====================================================================
@@ -1038,12 +1093,31 @@ function generateUniversityName(prestige = state.universityPrestige) {
 
 function assignUniversity() {
   state.cv.universityName = generateUniversityName();
+  state.cv.institutions = state.cv.institutions ?? [];
+  state.cv.institutions.push({ level: window.LEVELS?.[state.levelIndex]?.label ?? "", name: state.cv.universityName });
   return state.cv.universityName;
+}
+
+// A new stage means a new institution, and past the master's a new prestige:
+// measured from your PhD program (INSTITUTION_MOVES), because that's how hiring works.
+function moveInstitution(index) {
+  const move = window.INSTITUTION_MOVES?.[index];
+  if (move) {
+    const base  = move.from === "phd" ? (state.phdPrestige ?? state.universityPrestige) : state.universityPrestige;
+    const [lo, hi] = move.range;
+    const bonus = move.hBonus ? clamp(calcHIndex() - 7, 0, 10) : 0;
+    state.universityPrestige = clamp(Math.round(base + lo + Math.random() * (hi - lo) + bonus), 0, 100);
+  }
+  if (index === 3) state.phdPrestige = state.universityPrestige;
+  return assignUniversity();
 }
 
 // Saves from before names existed get one on load
 function ensureUniversityName() {
   if (state.levelIndex >= 1 && !state.cv.universityName) assignUniversity();
+  if (state.cv.universityName && !(state.cv.institutions ?? []).length) {
+    state.cv.institutions = [{ level: window.LEVELS?.[state.levelIndex]?.label ?? "", name: state.cv.universityName }];
+  }
 }
 
 // =====================================================================
@@ -1063,16 +1137,14 @@ function tuitionSplit(amount) {
   return { family, aid, you: amount - family - aid };
 }
 
-// Your share comes out of savings first; the rest is borrowed
+// Your share is borrowed. Savings stay put until you choose Pay Down Loans.
 function billTuition(credits) {
   const perCredit = tuitionPerCredit();
   if (!perCredit) return;
-  const owed     = tuitionSplit(perCredit * credits).you;
-  const fromCash = Math.min(Math.max(0, state.money), owed);
-  state.money -= fromCash;
-  state.debt  += owed - fromCash;
+  const owed = tuitionSplit(perCredit * credits).you;
+  state.debt += owed;
   state.stats.tuitionBilled += owed;
-  state.stats.borrowed      += owed - fromCash;
+  state.stats.borrowed      += owed;
 }
 
 function annualSalary() { return SALARY_ANNUAL[state.levelIndex] ?? 0; }
@@ -1081,10 +1153,10 @@ function tickEconomy() {
   const f      = 1 / ticksPerYear();
   const salary = annualSalary() * f;
   state.money += salary;
-  state.money -= (state.gradStudents?.length ?? 0) * GRAD_STIPEND_ANNUAL * f;
+  state.lab.funds -= labAnnualCosts() * f;
 
   if (state.debt > 0) {
-    state.debt += state.debt * LOAN_INTEREST_ANNUAL * f;
+    if (state.levelIndex >= LOAN_INTEREST_LEVEL) state.debt += state.debt * LOAN_INTEREST_ANNUAL * f;
     if (state.levelIndex >= LOAN_REPAYMENT_LEVEL) {
       const payment = Math.min(state.debt, salary * LOAN_PAYMENT_SHARE, Math.max(0, state.money));
       state.money -= payment;
@@ -1113,7 +1185,8 @@ function submitGrant() {
   state.stats.grantsTried += 1;
   if (Math.random() < grantChance()) {
     const award = GRANT_AWARD[state.levelIndex] ?? 0;
-    state.money += award;
+    if (state.levelIndex >= LAB_LEVEL) state.lab.funds += award;   // research money goes to research
+    else                               state.money     += award;   // a postdoc fellowship pays you
     state.stats.grantsWon += 1;
     state.stats.grantResubmits = 0;
     pushNews(`Funded: $${fmtMoney(award)}, after the university's cut.`);
@@ -1159,7 +1232,11 @@ function citeRandomPaper() {
 // LAB: grad students
 // =====================================================================
 
-function gradSlots() { return GRAD_SLOTS[state.levelIndex] ?? 0; }
+// Students need a faculty advisor (tenure track+) and somewhere to sit
+function gradSlots() {
+  if (state.levelIndex < TENURE_TRACK_LEVEL) return 0;
+  return window.LAB_SPACES?.[state.lab?.space ?? 0]?.slots ?? 0;
+}
 
 function gradBaselineMorale() {
   return clamp(GRAD_MORALE_BASE + (state.modifiers?.gradMorale ?? 0), 0.2, 1);
@@ -1176,7 +1253,7 @@ function recruitGradStudent() {
     morale:   gradBaselineMorale()
   };
   state.gradStudents.push(g);
-  pushNews(`${g.name} joined your lab. They ${g.quirk}.`);
+  pushNews(`New in your lab: ${g.name}, who ${g.quirk}.`);
   return g;
 }
 
@@ -1191,7 +1268,7 @@ function tickGradStudents() {
   if (!state.gradStudents?.length) return;
   const perYear  = ticksPerYear();
   const target   = gradBaselineMorale();
-  const unpaid   = state.money < 0;
+  const unpaid   = (state.lab?.funds ?? 0) < 0;
   const staying  = [];
 
   for (const g of state.gradStudents) {
@@ -1200,7 +1277,7 @@ function tickGradStudents() {
     if (unpaid) g.morale -= 0.004;                      // missed paychecks hurt fast
     g.morale    = clamp(g.morale, 0, 1);
 
-    g.progress += (0.5 + g.morale) / (GRAD_PAPER_YEARS * perYear);
+    g.progress += (0.5 + g.morale) * (state.modifiers?.gradSpeedMult ?? 1) / (GRAD_PAPER_YEARS * perYear);
     if (g.progress >= 1) {
       g.progress -= 1;
       addPaper(rollPaperTier("journal"));
@@ -1218,6 +1295,81 @@ function tickGradStudents() {
     }
   }
   state.gradStudents = staying;
+}
+
+// ── Lab: money in, research out ──
+
+// Saves from before the lab existed: past the tenure-track hire, you'd have
+// had a startup package, and any students need somewhere to sit
+function ensureLabState() {
+  if (state.levelIndex < TENURE_TRACK_LEVEL || state.lab.startupGranted) return;
+  state.lab.startupGranted = true;
+  state.lab.funds += TT_STARTUP_FUNDS;
+  const need = state.gradStudents?.length ?? 0;
+  while ((LAB_SPACES[state.lab.space]?.slots ?? 0) < need && state.lab.space < LAB_SPACES.length - 1) state.lab.space += 1;
+  pushNews(`Your department found your startup package in a drawer: $${fmtMoney(TT_STARTUP_FUNDS)} in lab funds.`);
+}
+
+function labAnnualCosts() {
+  const stipends = (state.gradStudents?.length ?? 0) * GRAD_STIPEND_ANNUAL;
+  const upkeep   = Object.keys(state.lab?.items ?? {})
+    .reduce((sum, id) => sum + (window.LAB_ITEMS?.[id]?.upkeep ?? 0), 0);
+  return stipends + upkeep;
+}
+
+function labItemStatus(id) {
+  const item = window.LAB_ITEMS?.[id];
+  if (!item)                                         return { visible: false };
+  if (state.lab.items[id])                           return { visible: true, owned: true };
+  if (state.levelIndex < (item.minLevel ?? 0))       return { visible: false };
+  if ((state.lab.space ?? 0) < (item.minSpace ?? 0)) return { visible: true, ok: false, reason: `needs ${LAB_SPACES[item.minSpace].label.toLowerCase()}` };
+  if (state.lab.funds < item.cost)                   return { visible: true, ok: false, reason: `$${fmtMoney(item.cost)}` };
+  return { visible: true, ok: true };
+}
+
+function buyLabItem(id) {
+  if (!labItemStatus(id).ok) return false;
+  const item = LAB_ITEMS[id];
+  state.lab.funds -= item.cost;
+  state.lab.items[id] = true;
+  if (item.once) applyOneTimeEffects(item.once);
+  rebuildModifiers();
+  pushNews(`Purchased: ${item.label}.`);
+  return true;
+}
+
+function nextLabSpace() { return window.LAB_SPACES?.[(state.lab?.space ?? 0) + 1] ?? null; }
+
+function labSpaceStatus() {
+  const next = nextLabSpace();
+  if (!next || state.levelIndex < LAB_LEVEL)  return { visible: false };
+  if (state.levelIndex < next.minLevel)       return { visible: true, ok: false, reason: `after ${LEVELS[next.minLevel].label.toLowerCase()}` };
+  if (state.lab.funds < next.cost)            return { visible: true, ok: false, reason: `$${fmtMoney(next.cost)}` };
+  return { visible: true, ok: true };
+}
+
+function upgradeLabSpace() {
+  if (!labSpaceStatus().ok) return false;
+  const next = nextLabSpace();
+  state.lab.funds -= next.cost;
+  state.lab.space += 1;
+  pushNews(`Your lab moved into ${next.label.charAt(0).toLowerCase() + next.label.slice(1)}.`);
+  return true;
+}
+
+function studyCost()   { return Math.round(STUDY_BASE_COST * STUDY_COST_GROWTH ** (state.lab?.studiesRun ?? 0)); }
+function studyDrafts() { return STUDY_DRAFTS_BASE + STUDY_DRAFTS_PER_STUDENT * (state.gradStudents?.length ?? 0); }
+
+// Converts lab money into drafts; students do most of the work
+function runStudy() {
+  const cost = studyCost(), drafts = studyDrafts();
+  state.lab.funds -= cost;
+  state.lab.studiesRun += 1;
+  state.drafts          += drafts;
+  state.totalDraftsEver += drafts;
+  onDraftsGained(drafts);
+  pushNews(`Study complete: ${drafts} drafts' worth of data. It cost $${fmtMoney(cost)}.`);
+  return drafts;
 }
 
 // =====================================================================

@@ -20,7 +20,20 @@ function wireEvents() {
     if (state.timers.tenureClock != null) state.timers.tenureClock = Math.max(1, state.timers.tenureClock - ticksPerYear());
     render();
   });
-  on("dev_add_money", () => { state.money += 100000; render(); });
+  on("dev_add_money", () => {
+    if (state.levelIndex >= LAB_LEVEL) state.lab.funds += 100000; else state.money += 100000;
+    render();
+  });
+
+  // ── panel_lab — lab actions, equipment, space upgrades ──────────────
+  document.getElementById("panel_lab")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn || btn.disabled) return;
+    const id = btn.id;
+    if (id === "lab_space_up")        { upgradeLabSpace(); render(); return; }
+    if (id.startsWith("lab_item_"))   { buyLabItem(id.slice(9)); render(); return; }
+    if (id.startsWith("act_"))        { doAction(id.slice(4)); return; }
+  });
 
   // ── panel_other — all dynamic buttons via delegation ────────────────
   // Tests, publish, clubs, sports, majors, perks, landmarks all live here.

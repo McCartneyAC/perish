@@ -10,7 +10,8 @@ function render() {
   renderCV();
   renderButtons();
   renderLandmark();
-  renderLabAndNews();
+  renderNews();
+  renderLab();
   renderDevInspector();   // no-op unless the dev modal is open
 }
 
@@ -69,7 +70,7 @@ function renderCurrentStats() {
 
   el.innerHTML = `
     <div><strong><i class="fa-solid fa-brain"></i> Knowledge:</strong> ${Math.floor(state.knowledge)}</div>
-    <div><strong><i class="fa-solid fa-pen-fancy"></i> Write Cost:</strong> ${writeCost()} knowledge</div>
+    <div><strong><i class="fa-solid fa-pen-fancy"></i> Write Cost:</strong> ${writeCost()} knowledge${draftsPerWrite() > 1 ? ` (+${draftsPerWrite()} drafts per write)` : ""}</div>
     <div><strong><i class="fa-solid fa-book-open"></i> Textbook Study:</strong> +${tGain} knowledge (cost: ${TEXTBOOK_ENERGY_COST} energy)</div>
     <div><strong><i class="fa-solid fa-glasses"></i> Paper Reading:</strong> +${pGain} knowledge (cost: ${PAPER_ENERGY_COST} energy)</div>
     <div><strong><i class="fa-solid fa-scroll"></i> Drafts:</strong> ${Math.floor(state.drafts)}</div>
@@ -89,7 +90,7 @@ function renderMoneyLines() {
   let html = `<div style="margin-top:6px;"><strong><i class="fa-solid fa-wallet"></i> Money:</strong>
     <span style="${money < 0 ? "color:#c0392b;" : ""}">${money < 0 ? "−" : ""}$${fmtMoney(Math.abs(money))}</span></div>`;
   if (salary)  html += `<div><strong><i class="fa-solid fa-money-check"></i> Salary:</strong> $${fmtMoney(salary)}/yr</div>`;
-  if (perCred) html += `<div><strong><i class="fa-solid fa-receipt"></i> Tuition:</strong> $${fmtMoney(tuitionSplit(perCred).you)} per draft (your share)</div>`;
+  if (perCred) html += `<div><strong><i class="fa-solid fa-receipt"></i> Tuition:</strong> $${fmtMoney(tuitionSplit(perCred).you)} borrowed per draft</div>`;
   if (state.debt > 0) {
     const stress = Math.round(debtStress() * 100);
     html += `<div><strong><i class="fa-solid fa-file-invoice-dollar"></i> Student Debt:</strong> $${fmtMoney(state.debt)}
@@ -108,36 +109,81 @@ function renderTenureClockLine() {
     <strong><i class="fa-solid fa-hourglass-half"></i> Tenure Clock:</strong> Year ${year} of ${TENURE_CLOCK_YEARS} (${mmss} left)</div>`;
 }
 
-// Lab roster and recent news, in the Actions panel
-function renderLabAndNews() {
-  const el = document.getElementById("hud_other");
+// Redraws only when the news changes, so the newest line can ink in once
+let lastNewsKey = null;
+function renderNews() {
+  const el = document.getElementById("hud_news");
   if (!el) return;
-  let html = "";
+  const news = state.news ?? [];
+  const key  = `${news.length}|${news[0] ?? ""}`;
+  if (key === lastNewsKey) return;
+  const fresh = lastNewsKey !== null;   // don't animate the first paint
+  lastNewsKey = key;
+  el.innerHTML = news.map((line, i) =>
+    `<p class="news-item${i === 0 && fresh ? " news-fresh" : ""}" style="opacity:${Math.max(0.45, 1 - i * 0.1)};">${line}</p>`
+  ).join("");
+}
 
+function renderLab() {
+  const panel = document.getElementById("panel_lab");
+  if (!panel) return;
+  const open = state.levelIndex >= LAB_LEVEL;
+  panel.style.display = open ? "" : "none";
+  if (!open) return;
+
+  // Header: funds, burn rate, space
+  const space = LAB_SPACES[state.lab.space ?? 0];
+  const burn  = labAnnualCosts();
+  const funds = state.lab.funds;
+  document.getElementById("hud_lab").innerHTML = `
+    <div><strong><i class="fa-solid fa-coins"></i> Lab Funds:</strong>
+      <span style="${funds < 0 ? "color:#c0392b; font-weight:bold;" : ""}">${funds < 0 ? "−" : ""}$${fmtMoney(Math.abs(funds))}</span>
+      ${burn ? `<span style="opacity:0.7;">(spending $${fmtMoney(burn)}/yr)</span>` : ""}</div>
+    ${funds < 0 && state.gradStudents?.length ? `<div style="color:#c0392b;">Your students aren't being paid.</div>` : ""}
+    <div style="margin-top:4px;"><strong><i class="fa-solid fa-door-open"></i> Space:</strong> ${space.label}
+      (${space.slots} student${space.slots === 1 ? "" : "s"})</div>
+    <div style="font-size:0.85em; opacity:0.75; font-style:italic;">${space.blurb}</div>
+  `;
+
+  // Shop: next space, then gear not yet owned
+  const shop = document.getElementById("lab_shop");
+  const want = [];
+  const sp = labSpaceStatus();
+  if (sp.visible) want.push({ id: "lab_space_up", label: `Move to ${nextLabSpace().label}`, st: sp, cost: nextLabSpace().cost, blurb: nextLabSpace().blurb, icon: "fa-up-right-and-down-left-from-center" });
+  for (const [id, item] of Object.entries(LAB_ITEMS)) {
+    const st = labItemStatus(id);
+    if (st.visible && !st.owned) want.push({ id: `lab_item_${id}`, label: item.label, st, cost: item.cost, blurb: item.blurb, icon: "fa-cart-shopping" });
+  }
+  const shopIds = new Set(want.map(x => x.id));
+  for (const b of [...shop.querySelectorAll("button")]) if (!shopIds.has(b.id)) b.remove();
+  if (want.length && !shop.querySelector("h3")) shop.insertAdjacentHTML("afterbegin", `<h3 style="margin:10px 0 4px;">Equipment</h3>`);
+  for (const x of want) {
+    let btn = document.getElementById(x.id);
+    if (!btn) { btn = document.createElement("button"); btn.id = x.id; shop.appendChild(btn); }
+    btn.innerHTML = `<i class="fa-solid ${x.icon}"></i> ${x.label} (${x.st.ok ? `$${fmtMoney(x.cost)}` : x.st.reason})`;
+    btn.title = x.blurb ?? "";
+    btn.disabled = !x.st.ok;
+  }
+  const owned = Object.keys(state.lab.items ?? {}).map(id => LAB_ITEMS[id]?.label).filter(Boolean);
+  let ownedEl = document.getElementById("lab_owned");
+  if (!ownedEl) { ownedEl = document.createElement("div"); ownedEl.id = "lab_owned"; ownedEl.className = "lab-owned"; shop.after(ownedEl); }
+  ownedEl.innerHTML = owned.length ? `Owned: ${owned.join(", ")}` : "";
+
+  // Roster
   const lab = state.gradStudents ?? [];
-  if (gradSlots() > 0 || lab.length || state.alumni) {
-    html += `<div style="margin-top:10px;"><strong><i class="fa-solid fa-flask"></i> Lab</strong>
-      (${lab.length}/${gradSlots()}${state.alumni ? `, ${state.alumni} alumni` : ""})</div>`;
-    for (const g of lab) {
-      const year = Math.floor(g.ageTicks / ticksPerYear()) + 1;
-      html += `<div style="margin-left:10px;">${g.name}, year ${year}: ${g.quirk}. <em>${gradMoraleLabel(g.morale)}</em></div>`;
-    }
-  }
-
-  if (state.news?.length) {
-    html += `<div style="margin-top:10px;"><strong><i class="fa-solid fa-bullhorn"></i> News</strong></div>`;
-    state.news.forEach((line, i) => {
-      html += `<div style="margin-left:10px; opacity:${Math.max(0.35, 1 - i * 0.13)};">${line}</div>`;
-    });
-  }
-  el.innerHTML = html;
+  const unpaid = funds < 0;
+  document.getElementById("lab_roster").innerHTML = (gradSlots() || lab.length || state.alumni) ? `
+    <h3 style="margin:10px 0 4px;"><i class="fa-solid fa-user-graduate"></i> Students (${lab.length}/${gradSlots()})${state.alumni ? `, ${state.alumni} alumni citing you` : ""}</h3>
+    ${lab.map(g => `
+      <div class="lab-student">
+        <strong>${g.name}</strong>, year ${Math.floor(g.ageTicks / ticksPerYear()) + 1}
+        · morale: ${gradMoraleLabel(g.morale)}${unpaid ? " (unpaid!)" : ""}
+        · next paper ${Math.floor(g.progress * 100)}%
+        <div class="quirk">${g.quirk}</div>
+      </div>`).join("")}
+  ` : "";
 }
 
-function renderNextLevelHint() {
-  // Intentionally unused — tip now lives in CV panel
-}
-
-// ── CV panel ──────────────────────────────────────────────────────────
 function renderCV() {
   const el = document.getElementById("hud_cv");
   if (!el) return;
@@ -203,6 +249,8 @@ function renderCV() {
   // Prestige, acceptance, major
   html += `
     ${state.cv?.universityName ? `<div><strong><i class="fa-solid fa-landmark"></i> Institution:</strong> ${state.cv.universityName}</div>` : ""}
+    ${(state.cv?.institutions ?? []).length > 1 ? `<div style="font-size:0.85em; opacity:0.8; margin-left:10px;">
+      ${state.cv.institutions.slice(0, -1).map(x => `${x.level}: ${x.name}`).join("<br>")}</div>` : ""}
     <div><strong><i class="fa-solid fa-building-columns"></i> University Prestige:</strong> ${state.universityPrestige} / 100</div>
     <div><strong><i class="fa-solid fa-trophy"></i> College Accepted:</strong> ${collegeStatusLabel()}</div>
     <div><strong><i class="fa-solid fa-trophy"></i> Master's Accepted:</strong> ${testTotal("gre") >= (window.TESTS?.gre?.scoring?.acceptTotal ?? 310) ? "Yes" : "No"}</div>
@@ -272,7 +320,7 @@ function renderLandmark() {
     .join("");
 
   el.innerHTML = `
-    <div class="landmark-label">${def.label}: <em>${phase?.label ?? ""}</em></div>
+    <div class="landmark-label">${def.label}: <em>${phase?.label ?? ""}</em>${landmarkSlipping() ? ` <span class="landmark-slipping">(slipping)</span>` : ""}</div>
     <div class="landmark-bar-outer">
       <div class="landmark-bar-inner" style="width:${pct}%"></div>
     </div>
@@ -321,17 +369,19 @@ function renderTestButtons() {
       btn.textContent   = section.label;
       btn.style.display = visible ? "" : "none";
       btn.disabled      = cooling || !canTakeTest(testId);
+      btn.title         = btn.disabled ? testBlockReason(testId) : "";
     }
   }
 }
 
 // Actions marked placement: "panel" get a button in the Actions panel.
 // Disabled buttons say why, since tooltips don't exist on phones.
+const PLACEMENT_CONTAINERS = { panel: "panel_other", lab: "lab_actions" };
+
 function renderPanelActions() {
-  const container = document.getElementById("panel_other");
-  if (!container) return;
   for (const [id, action] of Object.entries(window.ACTIONS ?? {})) {
-    if (action.placement !== "panel") continue;
+    const container = document.getElementById(PLACEMENT_CONTAINERS[action.placement]);
+    if (!container) continue;
     const elId = `act_${id}`;
     let btn = document.getElementById(elId);
     if (!btn) {
@@ -522,6 +572,8 @@ function renderDevInspector() {
   lines.push(`${pad("tenure clock", 18)} ${tenureClockYear() == null ? "off" : `year ${tenureClockYear()}, ${Math.ceil(state.timers.tenureClock / 10)}s left`}`);
   lines.push(`${pad("grad students", 18)} ${(state.gradStudents ?? []).map(g => `${g.name} (morale ${g.morale.toFixed(2)}, paper ${(g.progress * 100).toFixed(0)}%)`).join(", ") || "none"}`);
   lines.push(`${pad("alumni", 18)} ${state.alumni ?? 0}`);
+  lines.push(`${pad("lab funds", 18)} $${fmtMoney(state.lab?.funds ?? 0)}  burn $${fmtMoney(labAnnualCosts())}/yr, space ${state.lab?.space}, studies ${state.lab?.studiesRun}`);
+  lines.push(`${pad("phdPrestige", 18)} ${state.phdPrestige ?? "—"}`);
   lines.push(`${pad("steal caught odds", 18)} ${(stealCaughtChance() * 100).toFixed(0)}%`);
 
   lines.push("", "=== MODIFIERS ===");

@@ -172,6 +172,7 @@ function resetGame() {
   ensurePaperTiers();
   rollBirthTraitsIfNeeded();
   rebuildModifiers();
+  seedOpeningNews();
   render();
 }
 

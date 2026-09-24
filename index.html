@@ -4,10 +4,9 @@
 <script src="https://kit.fontawesome.com/fba8a3fc8c.js" crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Diplomata&family=Lavishly+Yours&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lavishly+Yours&family=Special+Elite&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <title>Publish Or Literally Perish</title>
-<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 
 <!-- Load order matters: content → state → helpers → systems → render → events → main -->
 <script defer src="content.js"></script>
@@ -22,6 +21,12 @@
 <body>
 <header>
   <h1><i class="fa-solid fa-chalkboard-user"></i> Publish or Literally Perish</h1>
+
+  <!-- News: an index card pinned beside the title. Feedback, not controls. -->
+  <aside id="news_card" aria-label="News">
+    <div class="news-heading">News</div>
+    <div id="hud_news"></div>
+  </aside>
 </header>
 
 <div id="dashboard">
@@ -36,7 +41,7 @@
     <div id="hud_cv"></div>
   </div>
 
-  <div class="panel" id="panel_other" style="max-width: 500px;">
+  <div class="panel" id="panel_other">
     <h2>Actions</h2>
     <!-- Publish UI — shown/hidden by render.js -->
     <div id="pubUI" style="display:none; margin-top:12px; border: solid 1px #2b1f14; padding:8px;">
@@ -45,6 +50,15 @@
     <!-- All other dynamic buttons (tests, clubs, majors, perks)
          are created and injected here by render.js -->
     <div id="hud_other"></div>
+  </div>
+
+  <!-- Research lab — shown from adjunct on (LAB_LEVEL) -->
+  <div class="panel" id="panel_lab" style="display:none;">
+    <h2>Research Lab</h2>
+    <div id="hud_lab"></div>
+    <div id="lab_actions"></div>
+    <div id="lab_shop"></div>
+    <div id="lab_roster"></div>
   </div>
 
 </div>
@@ -87,7 +101,7 @@
     <div style="margin-bottom:15px; font-weight:bold; font-size:14px;">Dev Inspector (live)</div>
     <div id="traitsContent" style="white-space:pre-wrap; line-height:1.5;"></div>
     <button id="dev_tenure_year" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">−1 tenure year</button>
-    <button id="dev_add_money" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">+$100k</button>
+    <button id="dev_add_money" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">+$100k (lab once you have one)</button>
     <button id="dev_toggle_therapy" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Toggle therapy flag</button>
     <button id="closeTraitsModal" style="margin-top:15px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Close</button>
   </div>

@@ -48,6 +48,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Saves from before university names existed get one
   ensureUniversityName();
 
+  // Saves from before the lab existed get their startup package
+  ensureLabState();
+
+  // New games open with a line of story
+  seedOpeningNews();
+
   // Wire all button event listeners
   wireEvents();
 

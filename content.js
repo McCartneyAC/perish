@@ -41,7 +41,7 @@
   // Landmark decay (softened). Progress slips only after a grace period with
   // no landmark progress, pauses during burnout, and never drops below the
   // start of the current phase.
-  window.LANDMARK_DECAY_PER_TICK    = 0.01;
+  window.LANDMARK_DECAY_PER_SEC     = 0.004;  // share of the landmark's totalProgress lost per second
   window.LANDMARK_DECAY_GRACE_MS    = 20000;
 
   window.SES_PRESTIGE_JITTER_MAX    = 8;
@@ -77,6 +77,8 @@
     1: [ 4000,  12000,    64000,    28000,  88000],   // undergrad
     2: [ 9000,  18000,    46000,    30000,  72000]    // master's; doctoral is funded
   };
+  // Your share of tuition is always borrowed; savings don't vanish into it.
+  // Pay Down Loans spends them deliberately.
   // Parents pay (ses − 20) / 60 of the bill (0 below SES 20, all of it above 80).
   // Aid covers this share of whatever's left. Ivies are rich; state schools are not.
   window.FIN_AID_BY_TIER            = [0.5, 0.2, 0.4, 0.2, 0.8];
@@ -84,6 +86,7 @@
   window.SHIFT_ENERGY_COST          = 20;
   window.SALARY_ANNUAL              = { 3: 32000, 4: 56000, 5: 22000, 6: 85000, 7: 115000, 8: 140000, 9: 60000 };
   window.LOAN_INTEREST_ANNUAL       = 0.068;
+  window.LOAN_INTEREST_LEVEL        = 2;      // subsidized through the bachelor's; interest starts in grad school
   window.LOAN_REPAYMENT_LEVEL       = 4;      // in-school deferment ends after the PhD; interest accrues anyway
   window.LOAN_PAYMENT_SHARE         = 0.15;   // income-driven repayment: 15% of salary
   window.DEBT_STRESS_SCALE          = 250000; // debt at which stress maxes out
@@ -113,8 +116,7 @@
   window.TENURE_DENIAL_PRESTIGE     = 15;     // denied → a less prestigious school, clock restarts
 
   // ── Grad students ────────────────────────────────────────────────────
-  window.GRAD_SLOTS                 = { 6: 2, 7: 4, 8: 6, 9: 1 };
-  window.GRAD_STIPEND_ANNUAL        = 35000;  // paid out of your money every tick; hire with a year in the bank
+  window.GRAD_STIPEND_ANNUAL        = 35000;  // paid from lab funds every tick; hire with a year in the bank
   window.GRAD_PAPER_YEARS           = 2;      // one paper per student per ~2 years at normal morale
   window.GRAD_PROGRAM_YEARS         = 5;      // then they defend and leave
   window.GRAD_MORALE_BASE           = 0.6;    // 0..1; agreeableness shifts it
@@ -130,7 +132,29 @@
   window.STEAL_CAUGHT_MAX           = 0.5;
   window.STEAL_CAUGHT_PRESTIGE      = 8;
 
-  window.NEWS_MAX                   = 6;
+  // ── Research lab ─────────────────────────────────────────────────────
+  // Lab funds are restricted money: grants, startup, and whatever you
+  // self-fund from salary. They pay students, equipment, and studies.
+  window.LAB_LEVEL                  = 5;      // the lab panel opens after the postdoc
+  window.TT_STARTUP_FUNDS           = 300000; // startup package when hired on the tenure track
+  window.SELF_FUND_AMOUNT           = 10000;
+  window.STUDY_BASE_COST            = 20000;  // × STUDY_COST_GROWTH per study already run
+  window.STUDY_COST_GROWTH          = 1.15;
+  window.STUDY_ENERGY_COST          = 10;
+  window.STUDY_COOLDOWN_MS          = 20000;
+  window.STUDY_DRAFTS_BASE          = 6;      // + STUDY_DRAFTS_PER_STUDENT for each grad student
+  window.STUDY_DRAFTS_PER_STUDENT   = 3;
+
+  // Where each move takes your prestige. "phd" means relative to your PhD
+  // program's prestige; ranges are uniform; hBonus adds (h − 7), 0..10.
+  window.INSTITUTION_MOVES = {
+    3: { from: "current", range: [ -5, 10] },                  // doctoral
+    4: { from: "phd",     range: [ -5,  5] },                  // postdoc
+    5: { from: "phd",     range: [-20, -5] },                  // adjunct: downhill
+    6: { from: "phd",     range: [-15,  5], hBonus: true }     // tenure track: a good record helps
+  };
+
+  window.NEWS_MAX                   = 8;
 
   // Per-paper citation cap (histogram length − 1). Papers stop at this count.
   window.HINDEX_BUCKET_MAX          = 500;
@@ -192,7 +216,11 @@
   // after `afterDrafts` drafts since the last milestone, one eligible event
   // is picked and shown as a button. See maybeSelectMilestone() in helpers.js.
   // Default afterDrafts per level; an event can override with its own afterDrafts.
-  window.MILESTONE_DRAFT_INTERVAL   = { 0: 7, 1: 8 };
+  window.MILESTONE_DRAFT_INTERVAL   = { 0: 6, 1: 8 };
+
+  // High school length in drafts (≈ credits you arrive at college with).
+  // HS events gate on hsYear() (1–4), so changing this rescales them all.
+  window.HS_DRAFTS                  = 30;
 
   // Publication costs (drafts + knowledge consumed on publish)
   window.PUB_COST = {
@@ -210,7 +238,7 @@
     sat: {
       id:           "sat",
       label:        "SAT",
-      visibleWhen:  (s) => s.levelIndex === 0 && s.knowledge >= 20,
+      visibleWhen:  (s) => s.levelIndex === 0,   // always shown in HS; greyed out until you can take it
       unlock:       { minLevelIndex: 0, minKnowledge: 20 },
       minKnowledge: 35,
       energyCost:   80,
@@ -236,7 +264,7 @@
     gre: {
       id:           "gre",
       label:        "GRE",
-      visibleWhen:  (s) => s.levelIndex === 1 && s.knowledge >= 90,
+      visibleWhen:  (s) => s.levelIndex === 1,   // always shown in undergrad; greyed out until you can take it
       unlock:       { minLevelIndex: 1, minKnowledge: 90 },
       minKnowledge: 110,
       energyCost:   80,
@@ -351,7 +379,7 @@
     {
       id:     "undergrad",
       label:  "Undergrad",
-      req:    { k: 40,   d: 40,   p: 0,  c: 0,    h: 0,   l: 0 },
+      req:    { k: 40,   d: window.HS_DRAFTS, p: 0, c: 0, h: 0, l: 0 },
       gateId: "college_admission",
       tip:    "Declare a major, join a club, and earn a sufficient GRE score."
     },
@@ -388,6 +416,7 @@
     },
     {
       id:     "tenuretrack",
+      draftsPerWrite: 2,   // the clock is unforgiving; writing counts double
       autoStartLandmark: "tenure_review",
       label:  "Tenure Track",
       req:    { k: 520,  d: 1050, p: 20, c: 150,  h: 7,   l: 2 },
@@ -488,9 +517,9 @@
           { op: "add", path: "knowledge", value: -kCost }
         ];
       },
-      effects: [
-        { op: "add", path: "drafts",         value: window.WRITE_GAIN_DRAFTS },
-        { op: "add", path: "totalDraftsEver", value: window.WRITE_GAIN_DRAFTS }
+      effects: () => [
+        { op: "add", path: "drafts",          value: draftsPerWrite() },
+        { op: "add", path: "totalDraftsEver", value: draftsPerWrite() }
       ]
     },
 
@@ -553,7 +582,7 @@
       icon:        "fa-money-bill-transfer",
       placement:   "panel",
       blurb:       "Every dollar goes to principal. Emotionally, it goes to interest.",
-      visibleWhen: (s) => s.debt > 0 && s.money >= 1 && s.levelIndex >= 2,
+      visibleWhen: (s) => s.debt > 0 && s.money >= 1 && s.levelIndex >= 1,
       detail:      (s) => `$${fmtMoney(Math.min(s.money, s.debt))}`,
       apply:       (s) => { const pay = Math.min(s.money, s.debt); s.money -= pay; s.debt -= pay; }
     },
@@ -588,7 +617,7 @@
         if ((s.drafts ?? 0) < window.GRANT_DRAFT_COST) return { ok: false, reason: `needs ${window.GRANT_DRAFT_COST} drafts` };
         return { ok: true, reason: "" };
       },
-      detail:      (s) => `${window.GRANT_DRAFT_COST} drafts, ~${Math.round(grantChance() * 100)}% odds, $${fmtMoney(window.GRANT_AWARD[s.levelIndex] ?? 0)}`,
+      detail:      (s) => `${window.GRANT_DRAFT_COST} drafts, ~${Math.round(grantChance() * 100)}% odds, $${fmtMoney(window.GRANT_AWARD[s.levelIndex] ?? 0)}${s.levelIndex >= window.LAB_LEVEL ? " to the lab" : ""}`,
       cost:        () => [
         { op: "add", path: "energy", value: -window.GRANT_ENERGY_COST },
         { op: "add", path: "drafts", value: -window.GRANT_DRAFT_COST }
@@ -602,17 +631,49 @@
       id:          "recruit_grad",
       label:       "Recruit a Grad Student",
       icon:        "fa-user-graduate",
-      placement:   "panel",
-      blurb:       "They'll write papers, run your experiments, and cost you $35,000 a year. Hire with a year of funding in the bank.",
+      placement:   "lab",
+      blurb:       "They'll write papers, run your studies, and cost $35,000 a year in lab funds. Hire with a year's stipend in hand.",
       visibleWhen: (s) => s.levelIndex >= window.TENURE_TRACK_LEVEL,
       canDo:       (s) => {
-        if ((s.gradStudents?.length ?? 0) >= gradSlots()) return { ok: false, reason: "lab is full" };
-        if (s.money < window.GRAD_STIPEND_ANNUAL)         return { ok: false, reason: `needs $${fmtMoney(window.GRAD_STIPEND_ANNUAL)} in the bank` };
+        if ((s.gradStudents?.length ?? 0) >= gradSlots()) return { ok: false, reason: gradSlots() ? "no room; upgrade your lab space" : "no room for students in this space" };
+        if (s.lab.funds < window.GRAD_STIPEND_ANNUAL)     return { ok: false, reason: `needs $${fmtMoney(window.GRAD_STIPEND_ANNUAL)} in lab funds` };
         return { ok: true, reason: "" };
       },
       detail:      (s) => `${s.gradStudents?.length ?? 0}/${gradSlots()}`,
       cost:        { energy: 15 },
       apply:       () => recruitGradStudent()
+    },
+
+    run_study: {
+      id:          "run_study",
+      label:       "Run a Study",
+      icon:        "fa-vial",
+      placement:   "lab",
+      blurb:       "Collect data. Well, your students collect data. You collect credit. Each study costs more than the last.",
+      visibleWhen: (s) => s.levelIndex >= window.LAB_LEVEL,
+      cooldownMs:  window.STUDY_COOLDOWN_MS,
+      canDo:       (s) => {
+        if (inCooldown()) return { ok: false, reason: "burned out" };
+        if (s.lab.funds < studyCost()) return { ok: false, reason: `needs $${fmtMoney(studyCost())} in lab funds` };
+        return { ok: true, reason: "" };
+      },
+      detail:      () => `$${fmtMoney(studyCost())}, +${studyDrafts()} drafts`,
+      cost:        { energy: window.STUDY_ENERGY_COST },
+      apply:       () => runStudy()
+    },
+
+    self_fund: {
+      id:          "self_fund",
+      label:       "Self-Fund Your Research",
+      icon:        "fa-hand-holding-dollar",
+      placement:   "lab",
+      blurb:       "Paying to do your job: a proud academic tradition.",
+      visibleWhen: (s) => s.levelIndex >= window.LAB_LEVEL,
+      canDo:       (s) => s.money >= window.SELF_FUND_AMOUNT
+                     ? { ok: true, reason: "" }
+                     : { ok: false, reason: `needs $${fmtMoney(window.SELF_FUND_AMOUNT)} of your own` },
+      detail:      () => `$${fmtMoney(window.SELF_FUND_AMOUNT)} from salary`,
+      apply:       (s) => { s.money -= window.SELF_FUND_AMOUNT; s.lab.funds += window.SELF_FUND_AMOUNT; }
     },
 
     steal_ideas: {
@@ -1359,9 +1420,8 @@
 
     // =====================================================================
     // HIGH SCHOOL MILESTONES — one-time events in levelIndex 0
-    // High school runs totalDraftsEver 0 → 40, about ten per year, so the
-    // `when` gates use it as a calendar (≥ 25 is junior/senior year).
-    // A player sees five or six of these per run.
+    // High school runs totalDraftsEver 0 → HS_DRAFTS. Gates use hsYear(s),
+    // 1 (freshman) through 4 (senior). A player sees about five per run.
     // =====================================================================
 
     prom: {
@@ -1369,7 +1429,7 @@
       label:       "Go to Prom",
       blurb:       "A night you'll remember (or regret).",
       category:    "hs_milestone",
-      milestone:   { level: 0, when: (s) => s.affiliations?.hs_club !== "chess" && (s.totalDraftsEver ?? 0) >= 25 },
+      milestone:   { level: 0, when: (s) => s.affiliations?.hs_club !== "chess" && hsYear(s) >= 3 },   // junior prom onward
       cost:        { energy: 30 },
       effects: {
         traits: { extraversion: +2 },
@@ -1463,24 +1523,11 @@
       label:       "Fail Your Driving Test",
       blurb:       "You parallel parked into a hedge. The examiner wrote for a long time.",
       category:    "hs_milestone",
-      milestone:   { level: 0, when: (s) => (s.totalDraftsEver ?? 0) >= 10 },
+      milestone:   { level: 0, when: (s) => hsYear(s) >= 2 },
       cost:        { energy: 15 },
       effects: {
         traits: { neuroticism: +1 },
         identity: { resilience: +3 }
-      }
-    },
-
-    hs_summer_job: {
-      id:          "hs_summer_job",
-      label:       "Work a Summer Job",
-      blurb:       "Three months of asking whether they want fries with that. They always want fries.",
-      category:    "hs_milestone",
-      milestone:   { level: 0, when: (s) => (s.traits?.ses ?? 50) < 60 },    // hidden SES gate
-      cost:        { energy: 25 },
-      effects: {
-        traits: { conscientiousness: +2 },
-        identity: { resilience: +2, ambition: +1 }
       }
     },
 
@@ -1503,7 +1550,7 @@
       label:       "Survive AP Week",
       blurb:       "Five exams, four days, and one pencil sharpener that finally gives up.",
       category:    "hs_milestone",
-      milestone:   { level: 0, when: (s) => (s.totalDraftsEver ?? 0) >= 20 },
+      milestone:   { level: 0, when: (s) => hsYear(s) >= 3 },
       cost:        { energy: 35 },
       effects: {
         modifiers: { knowledgeMult: 1.01 },
@@ -1517,7 +1564,7 @@
       label:       "Become Valedictorian",
       blurb:       "Your speech quotes Robert Frost. Everyone saw it coming, including Robert Frost.",
       category:    "hs_milestone",
-      milestone:   { level: 0, when: (s) => (s.totalDraftsEver ?? 0) >= 32
+      milestone:   { level: 0, when: (s) => hsYear(s) >= 4
                                          && (s.traits?.iq  ?? 100) > 115
                                          && (s.traits?.ses ?? 50)  > 50 },    // hidden trait gates
       cost:        { energy: 20 },
@@ -1609,8 +1656,8 @@
 
     // =====================================================================
     // UNDERGRADUATE MILESTONES — one-time events in levelIndex 1
-    // Drafts ≈ credits. Undergrad runs totalDraftsEver 40 → 120 (you arrive
-    // with 40 "AP credits"), so the `when` gates use it as a calendar:
+    // Drafts ≈ credits. Undergrad runs totalDraftsEver HS_DRAFTS → 120 (you
+    // arrive with "AP credits"), so the `when` gates use it as a calendar:
     // < 60 is the first year on campus, ≥ 90 is senior year. A few gates read
     // hidden traits (ses, conscientiousness) — some players will simply never
     // be offered these, and won't know why.
@@ -2359,6 +2406,73 @@
   window.EVENTS = {};
 
   // =====================================================================
+  // RESEARCH LAB — spaces (a ladder) and equipment (one-time purchases)
+  // Paid from lab funds. `modifiers`: "…Mult" keys multiply, others add;
+  // dotted keys reach into objects. `once`: identity/trait/prestige effects
+  // applied at purchase. `upkeep`: annual cost from lab funds.
+  // =====================================================================
+
+  window.LAB_SPACES = [
+    { id: "adjunct_corner", label: "A Corner of the Shared Adjunct Office", cost: 0,       slots: 0, minLevel: 5,
+      blurb: "Four adjuncts, one desk, one outlet that works if you hold the plug at an angle." },
+    { id: "closet",         label: "A Closet with a Window",                cost: 40000,   slots: 1, minLevel: 5,
+      blurb: "It used to hold mops. The mops were relocated. The smell was not." },
+    { id: "real_lab",       label: "A Real Lab",                            cost: 150000,  slots: 3, minLevel: 6,
+      blurb: "Benches, a fume hood, and a sign with your name spelled almost right." },
+    { id: "half_floor",     label: "Half a Floor",                          cost: 400000,  slots: 5, minLevel: 7,
+      blurb: "The other half belongs to someone you're no longer speaking to." },
+    { id: "whole_wing",     label: "The Whole Wing",                        cost: 1000000, slots: 8, minLevel: 8,
+      blurb: "It's named after a donor. Not you. Never you." }
+  ];
+
+  window.LAB_ITEMS = {
+    standing_desk:    { label: "Standing Desk",               cost: 1200,   minLevel: 5,
+      modifiers: { energyRegenMult: 1.03 },
+      blurb: "You'll stand at it twice. After that it's a very tall shelf, which also helps somehow." },
+    espresso:         { label: "Espresso Machine",            cost: 3000,   minLevel: 5,
+      modifiers: { gradMorale: 0.10 },
+      blurb: "The lab's only reliable source of motivation." },
+    ping_pong:        { label: "Ping-Pong Table",             cost: 2500,   minLevel: 6,
+      modifiers: { gradMorale: 0.08, gradSpeedMult: 0.95 },
+      blurb: "Morale is up. Output is, technically, down." },
+    website:          { label: "Lab Website",                 cost: 5000,   minLevel: 5,
+      modifiers: { citationMult: 1.03 }, once: { identity: { reputation: 3 } },
+      blurb: "Features a stock photo of a microscope. You don't use microscopes." },
+    monitors:         { label: "Second Monitors for Everyone", cost: 8000,  minLevel: 6,
+      modifiers: { gradSpeedMult: 1.10 },
+      blurb: "Now they can ignore the analysis on two screens at once." },
+    stats_license:    { label: "Statistical Software License", cost: 15000, minLevel: 5,
+      modifiers: { paperQualityBonus: 5 },
+      blurb: "The renewal fee is a problem for future you." },
+    travel:           { label: "Conference Travel Budget",    cost: 20000,  minLevel: 5,
+      modifiers: { "pubTypeMult.conference": 1.10 }, once: { identity: { network: 3 } },
+      blurb: "Your students present posters in hotel basements across the nation." },
+    grant_consultant: { label: "Grant-Writing Consultant",    cost: 25000,  minLevel: 6,
+      modifiers: { grantChance: 0.08 },
+      blurb: "She's never heard of your field and writes better proposals than you do." },
+    open_access:      { label: "Open-Access Fund",            cost: 30000,  minLevel: 6,
+      modifiers: { citationMult: 1.10 },
+      blurb: "Pay the journal so people can read your work. The journal thanks you." },
+    lab_manager:      { label: "Lab Manager",                 cost: 10000,  minLevel: 6, upkeep: 45000,
+      modifiers: { energyRegenMult: 1.10, gradMorale: 0.05 },
+      blurb: "Someone who knows where the purchase orders go. $45,000 a year from lab funds." },
+    server_rack:      { label: "Server Rack in the Closet",   cost: 60000,  minLevel: 6, minSpace: 1,
+      modifiers: { gradSpeedMult: 1.25 },
+      blurb: "Loud, hot, and the real reason the closet has a window." },
+    mass_spec:        { label: "Mass Spectrometer",           cost: 500000, minLevel: 7, minSpace: 2,
+      modifiers: { gradSpeedMult: 1.30, paperQualityBonus: 8 },
+      blurb: "Nobody knows how to run it except a fourth-year who's about to graduate." }
+  };
+
+  // What the news says when you arrive somewhere new ({name} is filled in)
+  window.ARRIVAL_NEWS = {
+    3: "PhD program: {name}. Fully funded, in theory.",
+    4: "Postdoc at {name}. Two years. Maybe three. Definitely not permanent.",
+    5: "You're teaching five sections of intro at {name}. Your office is a corner of someone else's.",
+    6: "Hired on the tenure track at {name}! Startup package: ${startup}. The clock starts now."
+  };
+
+  // =====================================================================
   // UNIVERSITY NAMES — generated from your prestige when you arrive
   // Tiers by universityPrestige. Templates fill {slot}s from `slots`.
   // =====================================================================
@@ -2437,6 +2551,9 @@
     "Accept with minor revisions. You feel generous and slightly suspicious of yourself.",
     "Four hours on a paper that cited you zero times. You noted this, professionally."
   ];
+
+  // The first thing in the news on a new game
+  window.OPENING_NEWS = "You start your academic career in high school. Nobody has told you that's what this is.";
 
   window.GRANT_FAIL_QUIPS = [
     "Not funded. Reviewers called your approach \"ambitious,\" which is not a compliment.",
