@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Diplomata&family=Lavishly+Yours&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <title>Publish Or Literally Perish</title>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 
 <!-- Load order matters: content → state → helpers → systems → render → events → main -->
 <script defer src="content.js"></script>
@@ -85,6 +86,8 @@
   <div style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; color:#ddd; padding:20px; border-radius:8px; width:min(480px, 92vw); max-height:80vh; overflow-y:auto; font-family:monospace; font-size:12px;">
     <div style="margin-bottom:15px; font-weight:bold; font-size:14px;">Dev Inspector (live)</div>
     <div id="traitsContent" style="white-space:pre-wrap; line-height:1.5;"></div>
+    <button id="dev_tenure_year" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">−1 tenure year</button>
+    <button id="dev_add_money" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">+$100k</button>
     <button id="dev_toggle_therapy" style="margin-top:15px; margin-right:8px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Toggle therapy flag</button>
     <button id="closeTraitsModal" style="margin-top:15px; padding:8px 12px; background:#444; border:1px solid #666; color:#ddd; cursor:pointer; border-radius:4px;">Close</button>
   </div>

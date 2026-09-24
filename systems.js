@@ -26,8 +26,17 @@ function tick() {
   // Citation accumulation
   tickCitations();
 
-  // Citations grow on their own, so check for promotion once a second
-  if (tickCount % 10 === 0) tryLevelUp();
+  // Money, the lab, and the tenure clock
+  tickEconomy();
+  tickGradStudents();
+  tickTenureClock();
+
+  // Citations grow and debt shifts on their own, so once a second check for
+  // promotion and refresh modifiers (debt stress, alumni citations)
+  if (tickCount % 10 === 0) {
+    tryLevelUp();
+    rebuildModifiers();
+  }
 
   // Landmark decay and advisor notes
   tickLandmarkDecay();

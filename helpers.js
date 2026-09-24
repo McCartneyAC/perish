@@ -33,11 +33,8 @@ function inCooldown() {
 }
 
 function effectiveCooldownMs() {
-  const t   = state.traits || {};
-  const c   = traitCentered(t.conscientiousness ?? 50);
-  const n   = traitCentered(t.neuroticism       ?? 50);
-  const mult = (1 - CONSC_COOLDOWN_MAX * c) * (1 + NEURO_COOLDOWN_MAX * n);
-  return Math.floor(BASE_COOLDOWN_MS * clamp(mult, 0.6, 1.8));
+  const [lo, hi] = BURNOUT_MULT_RANGE;
+  return Math.floor(BASE_COOLDOWN_MS * clamp(state.modifiers?.burnoutMult ?? 1, lo, hi));
 }
 
 // Returns true if energy was spent; triggers burnout if energy hits 0
@@ -101,19 +98,15 @@ function rebuildModifiers() {
   m.energyRegenMult    = 1;
   m.paperQualityBonus  = 0;
   m.grantAptitudeBonus = 0;
+  m.burnoutMult        = 1;
+  m.debtStressMult     = 1;
+  m.tierSpread         = 0;
+  m.grantChance        = 0;
+  m.gradMorale         = 0;
+  m.reviewSelfCite     = 0;
   m.pubTypeMult        = { conference: 1, journal: 1, chapter: 1, monograph: 1 };
 
-  // Apply trait effects
-  const t   = state.traits || {};
-  const iq  = traitCentered(clamp(((t.iq ?? 100) - 70) / 60 * 100, 0, 100));
-  const c   = traitCentered(t.conscientiousness ?? 50);
-  const n   = traitCentered(t.neuroticism       ?? 50);
-  const o   = traitCentered(t.openness          ?? 50);
-
-  m.knowledgeMult     *= (1 + IQ_KNOWLEDGE_MAX    * iq);
-  m.writeCostMult     *= (1 - CONSC_WRITE_MAX      * c);
-  m.energyRegenMult   *= (1 - NEURO_COOLDOWN_MAX   * n * 0.3);
-  m.paperMult         *= (1 + OPENNESS_PAPER_MAX   * o);
+  applyTraitEffects(m);
 
   // Apply all active affiliation effects — clubs (any slot) and majors.
   // We loop over all affiliation slots rather than hardcoding slot names,
@@ -135,6 +128,41 @@ function rebuildModifiers() {
     const perk = window.PERKS?.[perkId];
     if (perk?.effects) applyAffiliationModifiers(perk);
   }
+
+  // Student debt wears you down (neuroticism makes it worse)
+  m.energyRegenMult *= 1 - debtStress();
+
+  // Former students cite you for the rest of their careers
+  m.citationMult *= 1 + Math.min(ALUMNI_CITE_MAX, ALUMNI_CITE_EACH * (state.alumni ?? 0));
+}
+
+// Where each trait sits on −1..+1. IQ maps 70..130; everything else 0..100.
+function traitPosition(trait) {
+  const t = state.traits || {};
+  if (trait === "iq") return clamp(((t.iq ?? 100) - 100) / 30, -1, 1);
+  return traitCentered(t[trait] ?? 50);
+}
+
+// Applies TRAIT_EFFECTS (content.js): "…Mult" keys multiply, others add.
+function applyTraitEffects(m) {
+  for (const [trait, effects] of Object.entries(window.TRAIT_EFFECTS ?? {})) {
+    const x = traitPosition(trait);
+    for (const [key, value] of Object.entries(effects)) {
+      const parts  = key.split(".");
+      let target   = m;
+      for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]];
+      const leaf   = parts[parts.length - 1];
+      if (typeof target?.[leaf] !== "number") continue;
+      if (leaf.endsWith("Mult")) target[leaf] *= 1 + value * x;
+      else                       target[leaf] += value * x;
+    }
+  }
+}
+
+// 0..DEBT_STRESS_MAX × debtStressMult: the share of energy regen your loans eat
+function debtStress() {
+  const load = clamp((state.debt ?? 0) / DEBT_STRESS_SCALE, 0, 1);
+  return clamp(DEBT_STRESS_MAX * load * (state.modifiers?.debtStressMult ?? 1), 0, 0.5);
 }
 
 // Generic modifier applicator — reads the nested effects format from content.js
@@ -455,6 +483,7 @@ function tryLevelUp() {
   const before = state.levelIndex;
   while (canLevelUp(state.levelIndex + 1)) {
     state.levelIndex += 1;
+    onEnterLevel(state.levelIndex);
   }
   if (state.levelIndex !== before) {
     // New chapter of life: milestone events start their cycle over
@@ -561,9 +590,11 @@ function paperTierWeights(type, quality) {
   const tMult = state.modifiers?.pubTypeMult?.[type] ?? 1;
   const tilt  = PAPER_QUALITY_TILT * (quality - PAPER_QUALITY_CENTER) / 35
               + (window.PUB_TYPE_TIER_TILT?.[type] ?? 0)
-              + PUB_TYPE_MULT_TILT * Math.log(tMult > 0 ? tMult : 1);
+              + PUB_TYPE_MULT_TILT * Math.log(tMult > 0 ? tMult : 1)
+              + REVIEW_GOODWILL_TILT * (state.editorGoodwill ?? 0);
+  const spread = state.modifiers?.tierSpread ?? 0;    // openness: fatter tails both ways
   const mid   = (base.length - 1) / 2;
-  return base.map((w, t) => w * Math.exp(tilt * (t - mid)));
+  return base.map((w, t) => w * Math.exp(tilt * (t - mid) + spread * ((t - mid) / mid) ** 2));
 }
 
 function rollPaperTier(type) {
@@ -851,9 +882,8 @@ function tickPerks() {
     const gain = Math.floor(state.timers.draftAccumulator);
     state.drafts         += gain;
     state.totalDraftsEver += gain;
-    state.timers.draftsSinceMilestone = (state.timers.draftsSinceMilestone ?? 0) + gain;
     state.timers.draftAccumulator -= gain;
-    maybeSelectMilestone();
+    onDraftsGained(gain);
   }
 }
 
@@ -894,6 +924,7 @@ function doAction(actionId, payload) {
     return false;
   }
 
+  if (actionCooldownLeft(actionId) > 0) return false;
   const check = action.canDo?.(state, payload) ?? { ok: true };
   if (!check.ok) return false;
 
@@ -922,19 +953,337 @@ function doAction(actionId, payload) {
     ? action.effects(state, payload)
     : action.effects;
   applyResourceDeltas(Array.isArray(effects) ? effects : [effects]);
-  const draftsGained = (state.drafts ?? 0) - draftsBefore;
-  if (draftsGained > 0) {
-    state.timers.draftsSinceMilestone = (state.timers.draftsSinceMilestone ?? 0) + draftsGained;
-    maybeSelectMilestone();
-  }
+  onDraftsGained((state.drafts ?? 0) - draftsBefore);
 
   if (typeof action.apply === "function") action.apply(state, payload);
+  if (action.cooldownMs) state.timers.readyAt[actionId] = Date.now() + action.cooldownMs;
 
   advanceLandmark(actionId);
   tryLevelUp();
   rebuildModifiers();
   render();
   return true;
+}
+
+// =====================================================================
+// SMALL SHARED HELPERS
+// =====================================================================
+
+function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function fmtMoney(x) { return Math.round(x).toLocaleString("en-US"); }
+
+function ticksPerYear() { return SECONDS_PER_YEAR * 1000 / TICK_MS; }
+
+function pushNews(text) {
+  state.news = state.news || [];
+  state.news.unshift(text);
+  if (state.news.length > NEWS_MAX) state.news.length = NEWS_MAX;
+}
+
+// Knowledge from one round of paper reading — the unit reviews and theft scale by
+function paperReadingGain() {
+  const draftScale = 1 + 0.6 * Math.sqrt(state.totalDraftsEver ?? 0);
+  return (state.knowledgePerStudy ?? 1) * draftScale
+       * (state.modifiers?.paperMult ?? 1) * (state.modifiers?.knowledgeMult ?? 1);
+}
+
+function actionCooldownLeft(actionId) {
+  return Math.max(0, (state.timers?.readyAt?.[actionId] ?? 0) - Date.now());
+}
+
+// Every draft, whoever wrote it, goes through here: milestone counter + tuition
+function onDraftsGained(n) {
+  if (!(n > 0)) return;
+  state.timers.draftsSinceMilestone = (state.timers.draftsSinceMilestone ?? 0) + n;
+  billTuition(n);
+  maybeSelectMilestone();
+}
+
+// Arriving at a new level (called once per level passed)
+function onEnterLevel(index) {
+  if (index === 1 || index === 2) {
+    assignUniversity();
+    const split = tuitionSplit(1);
+    pushNews(`Welcome to ${state.cv.universityName}. Tuition is $${fmtMoney(tuitionPerCredit())} a credit; `
+           + `family covers ${Math.round(split.family * 100)}%, aid ${Math.round(split.aid * 100)}%.`);
+  }
+  if (index === TENURE_TRACK_LEVEL) {
+    state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
+    pushNews(`The tenure clock has started. ${TENURE_CLOCK_YEARS} years.`);
+  }
+  if (index === TENURE_TRACK_LEVEL + 1) {
+    state.timers.tenureClock = null;
+    pushNews("Tenure! Nobody can fire you now, except possibly the board of trustees.");
+  }
+}
+
+// =====================================================================
+// UNIVERSITY NAMES
+// =====================================================================
+
+function universityTier(prestige = state.universityPrestige) {
+  const tiers = window.UNIVERSITY_NAMES ?? [];
+  let idx = 0;
+  tiers.forEach((t, i) => { if (prestige >= t.min) idx = i; });
+  return idx;
+}
+
+function generateUniversityName(prestige = state.universityPrestige) {
+  const tier = window.UNIVERSITY_NAMES?.[universityTier(prestige)];
+  if (!tier) return "University";
+  if (tier.easterEgg && Math.random() < tier.easterEgg.chance) return tier.easterEgg.name;
+  return pickOne(tier.templates).replace(/\{(\w+)\}/g, (_, slot) => pickOne(tier.slots?.[slot] ?? [slot]));
+}
+
+function assignUniversity() {
+  state.cv.universityName = generateUniversityName();
+  return state.cv.universityName;
+}
+
+// Saves from before names existed get one on load
+function ensureUniversityName() {
+  if (state.levelIndex >= 1 && !state.cv.universityName) assignUniversity();
+}
+
+// =====================================================================
+// MONEY: tuition, salary, loans
+// =====================================================================
+
+function tuitionPerCredit() {
+  const annual = window.TUITION_ANNUAL?.[state.levelIndex];
+  if (!annual) return 0;
+  return annual[universityTier()] / CREDITS_PER_YEAR;
+}
+
+// Who pays a bill: family (by SES), then aid (by school), then you
+function tuitionSplit(amount) {
+  const family = amount * clamp(((state.traits?.ses ?? 50) - 20) / 60, 0, 1);
+  const aid    = (amount - family) * (FIN_AID_BY_TIER[universityTier()] ?? 0);
+  return { family, aid, you: amount - family - aid };
+}
+
+// Your share comes out of savings first; the rest is borrowed
+function billTuition(credits) {
+  const perCredit = tuitionPerCredit();
+  if (!perCredit) return;
+  const owed     = tuitionSplit(perCredit * credits).you;
+  const fromCash = Math.min(Math.max(0, state.money), owed);
+  state.money -= fromCash;
+  state.debt  += owed - fromCash;
+  state.stats.tuitionBilled += owed;
+  state.stats.borrowed      += owed - fromCash;
+}
+
+function annualSalary() { return SALARY_ANNUAL[state.levelIndex] ?? 0; }
+
+function tickEconomy() {
+  const f      = 1 / ticksPerYear();
+  const salary = annualSalary() * f;
+  state.money += salary;
+  state.money -= (state.gradStudents?.length ?? 0) * GRAD_STIPEND_ANNUAL * f;
+
+  if (state.debt > 0) {
+    state.debt += state.debt * LOAN_INTEREST_ANNUAL * f;
+    if (state.levelIndex >= LOAN_REPAYMENT_LEVEL) {
+      const payment = Math.min(state.debt, salary * LOAN_PAYMENT_SHARE, Math.max(0, state.money));
+      state.money -= payment;
+      state.debt  -= payment;
+    }
+    if (state.debt < 1) state.debt = 0;
+  }
+}
+
+// =====================================================================
+// GRANTS
+// =====================================================================
+
+function grantChance() {
+  const m = state.modifiers ?? {};
+  const p = GRANT_BASE_CHANCE
+          + GRANT_H_CHANCE * calcHIndex()
+          + 0.001 * (state.universityPrestige ?? 0)
+          + (m.grantAptitudeBonus ?? 0) / 100
+          + (m.grantChance ?? 0)
+          + GRANT_RESUBMIT_BONUS * Math.min(3, state.stats?.grantResubmits ?? 0);
+  return clamp(p, GRANT_CHANCE_RANGE[0], GRANT_CHANCE_RANGE[1]);
+}
+
+function submitGrant() {
+  state.stats.grantsTried += 1;
+  if (Math.random() < grantChance()) {
+    const award = GRANT_AWARD[state.levelIndex] ?? 0;
+    state.money += award;
+    state.stats.grantsWon += 1;
+    state.stats.grantResubmits = 0;
+    pushNews(`Funded: $${fmtMoney(award)}, after the university's cut.`);
+    return true;
+  }
+  state.stats.grantResubmits += 1;
+  pushNews(pickOne(GRANT_FAIL_QUIPS));
+  return false;
+}
+
+// =====================================================================
+// PEER REVIEW
+// =====================================================================
+
+function reviewManuscript() {
+  state.stats.reviewsDone += 1;
+  state.editorGoodwill = Math.min(REVIEW_GOODWILL_MAX, (state.editorGoodwill ?? 0) + 1);
+  state.identity.network = (state.identity.network ?? 0) + 1;
+
+  const selfCite = clamp(REVIEW_SELF_CITE_BASE + (state.modifiers?.reviewSelfCite ?? 0), 0, 1);
+  if (calcTotalPapers() > 0 && Math.random() < selfCite) {
+    citeRandomPaper();
+    pushNews("You suggested the authors \"engage with relevant prior work.\" They cited you.");
+  } else {
+    pushNews(pickOne(REVIEW_QUIPS));
+  }
+}
+
+// Moves one random paper up a citation (below the cap)
+function citeRandomPaper() {
+  const slots = [];
+  state.papers.tiers.forEach((hist, t) => hist.forEach((n, c) => {
+    if (n > 0 && c < HINDEX_BUCKET_MAX) slots.push([t, c, n]);
+  }));
+  if (!slots.length) return false;
+  const [t, c] = slots[weightedIndex(slots.map(x => x[2]))];
+  state.papers.tiers[t][c]     -= 1;
+  state.papers.tiers[t][c + 1] += 1;
+  return true;
+}
+
+// =====================================================================
+// LAB: grad students
+// =====================================================================
+
+function gradSlots() { return GRAD_SLOTS[state.levelIndex] ?? 0; }
+
+function gradBaselineMorale() {
+  return clamp(GRAD_MORALE_BASE + (state.modifiers?.gradMorale ?? 0), 0.2, 1);
+}
+
+function recruitGradStudent() {
+  const taken = new Set((state.gradStudents ?? []).map(g => g.name));
+  const pool  = GRAD_NAMES.filter(n => !taken.has(n));
+  const g = {
+    name:     pickOne(pool.length ? pool : GRAD_NAMES),
+    quirk:    pickOne(GRAD_QUIRKS),
+    ageTicks: 0,
+    progress: 0,
+    morale:   gradBaselineMorale()
+  };
+  state.gradStudents.push(g);
+  pushNews(`${g.name} joined your lab. They ${g.quirk}.`);
+  return g;
+}
+
+function gradMoraleLabel(m) {
+  if (m >= 0.75) return "thriving";
+  if (m >= 0.5)  return "fine";
+  if (m >= 0.3)  return "struggling";
+  return "drafting a resignation email";
+}
+
+function tickGradStudents() {
+  if (!state.gradStudents?.length) return;
+  const perYear  = ticksPerYear();
+  const target   = gradBaselineMorale();
+  const unpaid   = state.money < 0;
+  const staying  = [];
+
+  for (const g of state.gradStudents) {
+    g.ageTicks += 1;
+    g.morale   += (target - g.morale) * 0.002;          // drifts back toward your baseline
+    if (unpaid) g.morale -= 0.004;                      // missed paychecks hurt fast
+    g.morale    = clamp(g.morale, 0, 1);
+
+    g.progress += (0.5 + g.morale) / (GRAD_PAPER_YEARS * perYear);
+    if (g.progress >= 1) {
+      g.progress -= 1;
+      addPaper(rollPaperTier("journal"));
+      pushNews(`${g.name}'s paper was accepted. You're senior author, naturally.`);
+    }
+
+    if (g.morale < GRAD_QUIT_MORALE) {
+      pushNews(`${g.name} left for industry. Their starting salary is higher than yours.`);
+    } else if (g.ageTicks >= GRAD_PROGRAM_YEARS * perYear) {
+      state.alumni = (state.alumni ?? 0) + 1;
+      pushNews(`Dr. ${g.name} defended! They'll cite you for the rest of their career.`);
+      rebuildModifiers();
+    } else {
+      staying.push(g);
+    }
+  }
+  state.gradStudents = staying;
+}
+
+// =====================================================================
+// STEALING STUDENT IDEAS
+// =====================================================================
+
+function stealCaughtChance() {
+  return Math.min(STEAL_CAUGHT_MAX, STEAL_CAUGHT_BASE * (1 + (state.stats?.ideasStolen ?? 0)));
+}
+
+function stealIdeas() {
+  const caught = Math.random() < stealCaughtChance();
+  state.stats.ideasStolen += 1;
+  state.traits.agreeableness = clamp((state.traits.agreeableness ?? 50) - 2, 0, 100);  // you become this person
+  for (const g of state.gradStudents ?? []) g.morale = Math.max(0, g.morale - 0.3);
+
+  if (caught) {
+    state.stats.timesCaught += 1;
+    state.universityPrestige = clamp(state.universityPrestige - STEAL_CAUGHT_PRESTIGE, 0, 100);
+    state.identity.reputation = (state.identity.reputation ?? 0) - 5;
+    pushNews("A student's thread about you went viral. The dean \"would like to chat.\"");
+  } else {
+    pushNews("Brilliant idea. You can't quite remember where you got it.");
+  }
+  return caught;
+}
+
+// =====================================================================
+// TENURE CLOCK
+// =====================================================================
+
+function tenureClockYear() {
+  const left = state.timers?.tenureClock;
+  if (left == null) return null;
+  const elapsed = TENURE_CLOCK_YEARS * ticksPerYear() - left;
+  return clamp(Math.floor(elapsed / ticksPerYear()) + 1, 1, TENURE_CLOCK_YEARS);
+}
+
+function tickTenureClock() {
+  if (state.levelIndex !== TENURE_TRACK_LEVEL) { state.timers.tenureClock = null; return; }
+  if (state.timers.tenureClock == null) state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
+
+  const yearBefore = tenureClockYear();
+  state.timers.tenureClock -= 1;
+  if (state.timers.tenureClock <= 0) { denyTenure(); return; }
+  const year = tenureClockYear();
+  if (year !== yearBefore) {
+    pushNews(year === TENURE_CLOCK_YEARS
+      ? `Final year on the tenure clock. Your dossier is due.`
+      : `Year ${year} of ${TENURE_CLOCK_YEARS} on the tenure clock.`);
+  }
+}
+
+// Up or out: you move somewhere less prestigious and start over
+function denyTenure() {
+  state.stats.tenureDenials += 1;
+  state.universityPrestige = clamp(state.universityPrestige - TENURE_DENIAL_PRESTIGE, 0, 100);
+  const name = assignUniversity();
+  state.identity.resilience = (state.identity.resilience ?? 0) + 5;
+
+  // The tenure review starts over at the new job
+  if (state.activeLandmark === "tenure_review") state.activeLandmark = null;
+  ensureLevelLandmark();
+
+  state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
+  pushNews(`Tenure denied. You've taken a tenure-track job at ${name}. The clock starts over.`);
 }
 
 // =====================================================================

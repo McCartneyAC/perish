@@ -10,6 +10,7 @@ function render() {
   renderCV();
   renderButtons();
   renderLandmark();
+  renderLabAndNews();
   renderDevInspector();   // no-op unless the dev modal is open
 }
 
@@ -76,7 +77,60 @@ function renderCurrentStats() {
     <div><strong><i class="fa-brands fa-mendeley"></i> Citations:</strong> ${cites}</div>
     <div><strong><i class="fa-solid fa-h"></i>-Index:</strong> ${hIdx}</div>
     <div><strong><i class="fa-solid fa-monument"></i> Landmarks:</strong> ${state.landmarksCompleted}</div>
+    ${renderMoneyLines()}
+    ${renderTenureClockLine()}
   `;
+}
+
+function renderMoneyLines() {
+  const money   = state.money ?? 0;
+  const salary  = annualSalary();
+  const perCred = tuitionPerCredit();
+  let html = `<div style="margin-top:6px;"><strong><i class="fa-solid fa-wallet"></i> Money:</strong>
+    <span style="${money < 0 ? "color:#c0392b;" : ""}">${money < 0 ? "−" : ""}$${fmtMoney(Math.abs(money))}</span></div>`;
+  if (salary)  html += `<div><strong><i class="fa-solid fa-money-check"></i> Salary:</strong> $${fmtMoney(salary)}/yr</div>`;
+  if (perCred) html += `<div><strong><i class="fa-solid fa-receipt"></i> Tuition:</strong> $${fmtMoney(tuitionSplit(perCred).you)} per draft (your share)</div>`;
+  if (state.debt > 0) {
+    const stress = Math.round(debtStress() * 100);
+    html += `<div><strong><i class="fa-solid fa-file-invoice-dollar"></i> Student Debt:</strong> $${fmtMoney(state.debt)}
+      ${stress ? `<span style="opacity:0.7;">(−${stress}% energy regen)</span>` : ""}</div>`;
+  }
+  return html;
+}
+
+function renderTenureClockLine() {
+  const year = tenureClockYear();
+  if (year == null) return "";
+  const secs  = Math.ceil((state.timers.tenureClock ?? 0) * TICK_MS / 1000);
+  const mmss  = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const final = year === TENURE_CLOCK_YEARS;
+  return `<div style="margin-top:6px;${final ? " color:#c0392b; font-weight:bold;" : ""}">
+    <strong><i class="fa-solid fa-hourglass-half"></i> Tenure Clock:</strong> Year ${year} of ${TENURE_CLOCK_YEARS} (${mmss} left)</div>`;
+}
+
+// Lab roster and recent news, in the Actions panel
+function renderLabAndNews() {
+  const el = document.getElementById("hud_other");
+  if (!el) return;
+  let html = "";
+
+  const lab = state.gradStudents ?? [];
+  if (gradSlots() > 0 || lab.length || state.alumni) {
+    html += `<div style="margin-top:10px;"><strong><i class="fa-solid fa-flask"></i> Lab</strong>
+      (${lab.length}/${gradSlots()}${state.alumni ? `, ${state.alumni} alumni` : ""})</div>`;
+    for (const g of lab) {
+      const year = Math.floor(g.ageTicks / ticksPerYear()) + 1;
+      html += `<div style="margin-left:10px;">${g.name}, year ${year}: ${g.quirk}. <em>${gradMoraleLabel(g.morale)}</em></div>`;
+    }
+  }
+
+  if (state.news?.length) {
+    html += `<div style="margin-top:10px;"><strong><i class="fa-solid fa-bullhorn"></i> News</strong></div>`;
+    state.news.forEach((line, i) => {
+      html += `<div style="margin-left:10px; opacity:${Math.max(0.35, 1 - i * 0.13)};">${line}</div>`;
+    });
+  }
+  el.innerHTML = html;
 }
 
 function renderNextLevelHint() {
@@ -148,6 +202,7 @@ function renderCV() {
 
   // Prestige, acceptance, major
   html += `
+    ${state.cv?.universityName ? `<div><strong><i class="fa-solid fa-landmark"></i> Institution:</strong> ${state.cv.universityName}</div>` : ""}
     <div><strong><i class="fa-solid fa-building-columns"></i> University Prestige:</strong> ${state.universityPrestige} / 100</div>
     <div><strong><i class="fa-solid fa-trophy"></i> College Accepted:</strong> ${collegeStatusLabel()}</div>
     <div><strong><i class="fa-solid fa-trophy"></i> Master's Accepted:</strong> ${testTotal("gre") >= (window.TESTS?.gre?.scoring?.acceptTotal ?? 310) ? "Yes" : "No"}</div>
@@ -288,13 +343,18 @@ function renderPanelActions() {
     btn.style.display = visible ? "" : "none";
     if (!visible) continue;
 
-    const check  = action.canDo?.(state) ?? { ok: true };
-    const energy = action.cost?.energy;
+    const wait   = Math.ceil(actionCooldownLeft(id) / 1000);
+    const check  = wait > 0 ? { ok: false, reason: `ready in ${wait}s` }
+                            : (action.canDo?.(state) ?? { ok: true });
+    const energy = typeof action.cost === "function"
+      ? Math.abs((action.cost(state) ?? []).find?.(d => d.path === "energy")?.value ?? 0)
+      : action.cost?.energy;
+    const extras = [energy ? `${energy} energy` : "", action.detail?.(state) ?? ""].filter(Boolean).join(", ");
     const icon   = action.icon ? `<i class="fa-solid ${action.icon}"></i> ` : "";
     btn.innerHTML = check.ok
-      ? `${icon}${action.label}${energy ? ` (${energy} energy)` : ""}`
+      ? `${icon}${action.label}${extras ? ` (${extras})` : ""}`
       : `${icon}${action.label} — ${check.reason}`;
-    btn.title    = action.blurb ?? "";
+    btn.title    = (typeof action.blurb === "function" ? action.blurb(state) : action.blurb) ?? "";
     btn.disabled = !check.ok || inCooldown();
   }
 }
@@ -444,6 +504,25 @@ function renderDevInspector() {
   lines.push("", "=== PRESTIGE ===");
   lines.push(`${pad("universityPrestige", 18)} ${state.universityPrestige}`);
   lines.push(`${pad("hsPrestige", 18)} ${state.hsPrestige ?? 0}  (added to SAT prestige at admission)`);
+
+  lines.push("", "=== MONEY ===");
+  lines.push(`${pad("money", 18)} $${fmtMoney(state.money ?? 0)}`);
+  lines.push(`${pad("debt", 18)} $${fmtMoney(state.debt ?? 0)}  (stress −${(debtStress() * 100).toFixed(1)}% regen)`);
+  lines.push(`${pad("salary", 18)} $${fmtMoney(annualSalary())}/yr`);
+  if (tuitionPerCredit()) {
+    const sp = tuitionSplit(1);
+    lines.push(`${pad("tuition/credit", 18)} $${fmtMoney(tuitionPerCredit())}  family ${(sp.family * 100).toFixed(0)}% / aid ${(sp.aid * 100).toFixed(0)}% / you ${(sp.you * 100).toFixed(0)}%`);
+  }
+  lines.push(`${pad("university", 18)} ${state.cv?.universityName ?? "—"} (tier ${universityTier()})`);
+  lines.push(`${pad("grant odds", 18)} ${(grantChance() * 100).toFixed(1)}%`);
+  lines.push(`${pad("editorGoodwill", 18)} ${state.editorGoodwill ?? 0}`);
+  for (const [k, v] of Object.entries(state.stats || {})) lines.push(`${pad(k, 18)} ${fmt(v)}`);
+
+  lines.push("", "=== TENURE & LAB ===");
+  lines.push(`${pad("tenure clock", 18)} ${tenureClockYear() == null ? "off" : `year ${tenureClockYear()}, ${Math.ceil(state.timers.tenureClock / 10)}s left`}`);
+  lines.push(`${pad("grad students", 18)} ${(state.gradStudents ?? []).map(g => `${g.name} (morale ${g.morale.toFixed(2)}, paper ${(g.progress * 100).toFixed(0)}%)`).join(", ") || "none"}`);
+  lines.push(`${pad("alumni", 18)} ${state.alumni ?? 0}`);
+  lines.push(`${pad("steal caught odds", 18)} ${(stealCaughtChance() * 100).toFixed(0)}%`);
 
   lines.push("", "=== MODIFIERS ===");
   for (const [k, v] of Object.entries(state.modifiers || {})) {

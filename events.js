@@ -15,6 +15,12 @@ function wireEvents() {
   on("dev_traits",      () => toggleTraitsModal());
   on("closeTraitsModal", () => toggleTraitsModal());
   on("dev_toggle_therapy", () => toggleTherapyFlag());
+  // Playtest helpers: skip a tenure year; fund a lab
+  on("dev_tenure_year", () => {
+    if (state.timers.tenureClock != null) state.timers.tenureClock = Math.max(1, state.timers.tenureClock - ticksPerYear());
+    render();
+  });
+  on("dev_add_money", () => { state.money += 100000; render(); });
 
   // ── panel_other — all dynamic buttons via delegation ────────────────
   // Tests, publish, clubs, sports, majors, perks, landmarks all live here.

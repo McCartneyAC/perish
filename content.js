@@ -44,13 +44,93 @@
   window.LANDMARK_DECAY_PER_TICK    = 0.01;
   window.LANDMARK_DECAY_GRACE_MS    = 20000;
 
-  // Trait modifier caps
-  window.IQ_KNOWLEDGE_MAX           = 0.15;
-  window.CONSC_WRITE_MAX            = 0.10;
-  window.NEURO_COOLDOWN_MAX         = 0.25;
-  window.CONSC_COOLDOWN_MAX         = 0.15;
-  window.OPENNESS_PAPER_MAX         = 0.12;
   window.SES_PRESTIGE_JITTER_MAX    = 8;
+
+  // ── Personality → mechanics ──────────────────────────────────────────
+  // Each value is the effect at the trait's extreme. Traits are centered to
+  // −1..+1 (50 → 0; IQ maps 70..130 → −1..+1) and scale linearly:
+  //   keys ending in "Mult" multiply:  × (1 + value × centered)
+  //   other keys add:                  + value × centered
+  // Keys can reach into objects with a dot ("pubTypeMult.conference").
+  // rebuildModifiers() applies the table; add a row here and it just works.
+  window.TRAIT_EFFECTS = {
+    iq:                { knowledgeMult: 0.15 },
+    conscientiousness: { writeCostMult: -0.15, burnoutMult: -0.25 },
+    neuroticism:       { burnoutMult: 0.50, energyRegenMult: -0.10, debtStressMult: 0.60 },
+    openness:          { paperMult: 0.12, tierSpread: 0.35 },              // bolder ideas: more duds AND more bangers
+    extraversion:      { "pubTypeMult.conference": 0.12, grantChance: 0.06 },  // networking pays at conferences and on panels
+    agreeableness:     { gradMorale: 0.25, reviewSelfCite: -0.25 }         // nicer to students; less likely to demand citations
+  };
+  window.BURNOUT_MULT_RANGE         = [0.5, 2.0];   // clamp on the combined burnoutMult
+
+  // ── Time ─────────────────────────────────────────────────────────────
+  // One career "year" of real time. Salaries, tuition, interest, grad school
+  // length, and the tenure clock all count in these years.
+  window.SECONDS_PER_YEAR           = 60;
+
+  // ── Money ────────────────────────────────────────────────────────────
+  // Drafts ≈ credits, so college and master's bill tuition per draft written.
+  window.CREDITS_PER_YEAR           = 30;
+  // Annual sticker price by level, then by university tier (see UNIVERSITY_NAMES)
+  //               CC     regional  lib arts  state   ivy
+  window.TUITION_ANNUAL = {
+    1: [ 4000,  12000,    64000,    28000,  88000],   // undergrad
+    2: [ 9000,  18000,    46000,    30000,  72000]    // master's; doctoral is funded
+  };
+  // Parents pay (ses − 20) / 60 of the bill (0 below SES 20, all of it above 80).
+  // Aid covers this share of whatever's left. Ivies are rich; state schools are not.
+  window.FIN_AID_BY_TIER            = [0.5, 0.2, 0.4, 0.2, 0.8];
+  window.SHIFT_PAY                  = { 0: 60, 1: 90 };   // per shift: high school, undergrad
+  window.SHIFT_ENERGY_COST          = 20;
+  window.SALARY_ANNUAL              = { 3: 32000, 4: 56000, 5: 22000, 6: 85000, 7: 115000, 8: 140000, 9: 60000 };
+  window.LOAN_INTEREST_ANNUAL       = 0.068;
+  window.LOAN_REPAYMENT_LEVEL       = 4;      // in-school deferment ends after the PhD; interest accrues anyway
+  window.LOAN_PAYMENT_SHARE         = 0.15;   // income-driven repayment: 15% of salary
+  window.DEBT_STRESS_SCALE          = 250000; // debt at which stress maxes out
+  window.DEBT_STRESS_MAX            = 0.15;   // energy regen lost at full stress (before neuroticism)
+
+  // ── Grants ───────────────────────────────────────────────────────────
+  window.GRANT_ENERGY_COST          = 30;
+  window.GRANT_DRAFT_COST           = 15;
+  window.GRANT_COOLDOWN_MS          = 45000;
+  window.GRANT_BASE_CHANCE          = 0.12;
+  window.GRANT_H_CHANCE             = 0.006;  // per point of h-index
+  window.GRANT_RESUBMIT_BONUS       = 0.04;   // per failed attempt, up to 3
+  window.GRANT_CHANCE_RANGE         = [0.03, 0.65];
+  window.GRANT_AWARD                = { 4: 40000, 5: 15000, 6: 250000, 7: 450000, 8: 700000, 9: 100000 };
+
+  // ── Peer review ──────────────────────────────────────────────────────
+  window.REVIEW_ENERGY_COST         = 12;
+  window.REVIEW_COOLDOWN_MS         = 20000;
+  window.REVIEW_KNOWLEDGE_MULT      = 3;      // × one round of paper reading
+  window.REVIEW_GOODWILL_MAX        = 5;
+  window.REVIEW_GOODWILL_TILT       = 0.08;   // tier tilt per goodwill, spent on your next publication
+  window.REVIEW_SELF_CITE_BASE      = 0.25;   // chance you talk the authors into citing you
+
+  // ── Tenure clock ─────────────────────────────────────────────────────
+  window.TENURE_TRACK_LEVEL         = 6;
+  window.TENURE_CLOCK_YEARS         = 7;
+  window.TENURE_DENIAL_PRESTIGE     = 15;     // denied → a less prestigious school, clock restarts
+
+  // ── Grad students ────────────────────────────────────────────────────
+  window.GRAD_SLOTS                 = { 6: 2, 7: 4, 8: 6, 9: 1 };
+  window.GRAD_STIPEND_ANNUAL        = 35000;  // paid out of your money every tick; hire with a year in the bank
+  window.GRAD_PAPER_YEARS           = 2;      // one paper per student per ~2 years at normal morale
+  window.GRAD_PROGRAM_YEARS         = 5;      // then they defend and leave
+  window.GRAD_MORALE_BASE           = 0.6;    // 0..1; agreeableness shifts it
+  window.GRAD_QUIT_MORALE           = 0.15;
+  window.ALUMNI_CITE_EACH           = 0.03;   // citationMult per graduated student
+  window.ALUMNI_CITE_MAX            = 0.30;
+
+  // ── Stealing student ideas ───────────────────────────────────────────
+  window.STEAL_ENERGY_COST          = 5;
+  window.STEAL_COOLDOWN_MS          = 60000;
+  window.STEAL_KNOWLEDGE_MULT       = 10;     // × one round of paper reading
+  window.STEAL_CAUGHT_BASE          = 0.05;   // +5% per previous theft, up to 50%
+  window.STEAL_CAUGHT_MAX           = 0.5;
+  window.STEAL_CAUGHT_PRESTIGE      = 8;
+
+  window.NEWS_MAX                   = 6;
 
   // Per-paper citation cap (histogram length − 1). Papers stop at this count.
   window.HINDEX_BUCKET_MAX          = 500;
@@ -447,6 +527,109 @@
       apply:   (s) => { s.flags.appliedToCollege = true; }
     },
 
+    // ── Money ──────────────────────────────────────────────────────────
+
+    // Energy is this game's time, so a shift is energy not spent studying.
+    // At Greendale a shift covers about a credit. At an Ivy it covers a textbook.
+    work_shift: {
+      id:          "work_shift",
+      label:       "Work a Shift",
+      icon:        "fa-cash-register",
+      placement:   "panel",
+      blurb:       (s) => s.levelIndex === 0
+                     ? "Four hours folding sweaters at the mall. They'll be unfolded by 4:15."
+                     : "Four hours at the library desk, telling people the printer is broken.",
+      visibleWhen: (s) => s.levelIndex <= 1,
+      canDo:       () => inCooldown() ? { ok: false, reason: "burned out" } : { ok: true, reason: "" },
+      detail:      (s) => `+$${window.SHIFT_PAY[s.levelIndex] ?? 0}`,
+      cost:        { energy: window.SHIFT_ENERGY_COST },
+      effects:     (s) => [{ op: "add", path: "money", value: window.SHIFT_PAY[s.levelIndex] ?? 0 }],
+      apply:       (s) => { s.stats.shiftsWorked += 1; }
+    },
+
+    pay_debt: {
+      id:          "pay_debt",
+      label:       "Pay Down Loans",
+      icon:        "fa-money-bill-transfer",
+      placement:   "panel",
+      blurb:       "Every dollar goes to principal. Emotionally, it goes to interest.",
+      visibleWhen: (s) => s.debt > 0 && s.money >= 1 && s.levelIndex >= 2,
+      detail:      (s) => `$${fmtMoney(Math.min(s.money, s.debt))}`,
+      apply:       (s) => { const pay = Math.min(s.money, s.debt); s.money -= pay; s.debt -= pay; }
+    },
+
+    // ── Post-PhD service ───────────────────────────────────────────────
+
+    review_manuscript: {
+      id:          "review_manuscript",
+      label:       "Review a Manuscript",
+      icon:        "fa-marker",
+      placement:   "panel",
+      blurb:       "Unpaid, anonymous, and the only time anyone reads your comments closely. The editor remembers, though.",
+      visibleWhen: (s) => s.levelIndex >= 4,
+      cooldownMs:  window.REVIEW_COOLDOWN_MS,
+      canDo:       () => inCooldown() ? { ok: false, reason: "burned out" } : { ok: true, reason: "" },
+      detail:      (s) => `goodwill ${s.editorGoodwill ?? 0}/${window.REVIEW_GOODWILL_MAX}`,
+      cost:        { energy: window.REVIEW_ENERGY_COST },
+      effects:     () => [{ op: "add", path: "knowledge", value: window.REVIEW_KNOWLEDGE_MULT * paperReadingGain() }],
+      apply:       () => reviewManuscript()
+    },
+
+    write_grant: {
+      id:          "write_grant",
+      label:       "Write a Grant Proposal",
+      icon:        "fa-sack-dollar",
+      placement:   "panel",
+      blurb:       "Forty pages explaining why this will work, for reviewers who will explain why it won't.",
+      visibleWhen: (s) => s.levelIndex >= 4,
+      cooldownMs:  window.GRANT_COOLDOWN_MS,
+      canDo:       (s) => {
+        if (inCooldown()) return { ok: false, reason: "burned out" };
+        if ((s.drafts ?? 0) < window.GRANT_DRAFT_COST) return { ok: false, reason: `needs ${window.GRANT_DRAFT_COST} drafts` };
+        return { ok: true, reason: "" };
+      },
+      detail:      (s) => `${window.GRANT_DRAFT_COST} drafts, ~${Math.round(grantChance() * 100)}% odds, $${fmtMoney(window.GRANT_AWARD[s.levelIndex] ?? 0)}`,
+      cost:        () => [
+        { op: "add", path: "energy", value: -window.GRANT_ENERGY_COST },
+        { op: "add", path: "drafts", value: -window.GRANT_DRAFT_COST }
+      ],
+      apply:       () => submitGrant()
+    },
+
+    // ── Running a lab ──────────────────────────────────────────────────
+
+    recruit_grad: {
+      id:          "recruit_grad",
+      label:       "Recruit a Grad Student",
+      icon:        "fa-user-graduate",
+      placement:   "panel",
+      blurb:       "They'll write papers, run your experiments, and cost you $35,000 a year. Hire with a year of funding in the bank.",
+      visibleWhen: (s) => s.levelIndex >= window.TENURE_TRACK_LEVEL,
+      canDo:       (s) => {
+        if ((s.gradStudents?.length ?? 0) >= gradSlots()) return { ok: false, reason: "lab is full" };
+        if (s.money < window.GRAD_STIPEND_ANNUAL)         return { ok: false, reason: `needs $${fmtMoney(window.GRAD_STIPEND_ANNUAL)} in the bank` };
+        return { ok: true, reason: "" };
+      },
+      detail:      (s) => `${s.gradStudents?.length ?? 0}/${gradSlots()}`,
+      cost:        { energy: 15 },
+      apply:       () => recruitGradStudent()
+    },
+
+    steal_ideas: {
+      id:          "steal_ideas",
+      label:       "Steal Student Ideas",
+      icon:        "fa-user-secret",
+      placement:   "panel",
+      blurb:       "It was a great point in office hours. It'll be an even better one in your next paper.",
+      visibleWhen: (s) => s.levelIndex >= 5,
+      cooldownMs:  window.STEAL_COOLDOWN_MS,
+      canDo:       () => inCooldown() ? { ok: false, reason: "burned out" } : { ok: true, reason: "" },
+      detail:      () => `+${Math.round(window.STEAL_KNOWLEDGE_MULT * paperReadingGain())} knowledge`,
+      cost:        { energy: window.STEAL_ENERGY_COST },
+      effects:     () => [{ op: "add", path: "knowledge", value: window.STEAL_KNOWLEDGE_MULT * paperReadingGain() }],
+      apply:       () => stealIdeas()
+    },
+
     publish: {
       id:          "publish",
       label:       "Publish",
@@ -484,6 +667,7 @@
       // file the new paper in that tier's histogram at 0 citations.
       apply: (s, payload) => {
         addPaper(rollPaperTier(payload?.type));
+        s.editorGoodwill = 0;   // the editor's goodwill got you this far; it's spent
       }
     }
   };
@@ -2173,5 +2357,92 @@
   // =====================================================================
 
   window.EVENTS = {};
+
+  // =====================================================================
+  // UNIVERSITY NAMES — generated from your prestige when you arrive
+  // Tiers by universityPrestige. Templates fill {slot}s from `slots`.
+  // =====================================================================
+
+  window.UNIVERSITY_NAMES = [
+    { min: 0, label: "Community College",
+      easterEgg: { name: "Greendale Community College", chance: 0.05 },
+      templates: ["{place} Community College", "Community College of {place}", "{place} Technical & Community College"],
+      slots: {
+        place: ["Exit 14", "the Former Blockbuster", "Parking Structure B", "the Tri-County Area", "the Old Sears",
+                "Route 9", "Lower Strip Mall", "Unincorporated Township", "the Greater Outlet Mall Region"]
+      } },
+
+    { min: 10, label: "Regional College",
+      templates: ["{dir} State College", "{dir} {dir2} State College", "{dir} State University at {town}",
+                  "{dir} {dir2} {dir3} State", "{town} State College"],
+      slots: {
+        dir:  ["North", "South", "East", "West", "Upper", "Lower", "Mid"],
+        dir2: ["Central", "Eastern", "Western", "Coastal", "Plains"],
+        dir3: ["Northeast", "Southwest", "Lakeshore"],
+        town: ["Dry Fork", "Muncie-Adjacent", "Fort Humbler", "Little Rapids", "Slippery Elm", "New Middleton"]
+      } },
+
+    { min: 30, label: "Liberal Arts College",
+      templates: ["{surname} College", "{surname}-{surname2} College", "The College of Saint {saint} the {epithet}",
+                  "{surname} College (Formerly the {surname2} Female Seminary)"],
+      slots: {
+        surname:  ["Pemberton", "Whitcombe", "Ashgrove", "Thistlewood", "Hollingsworth", "Bramblewick", "Fairweather", "Quimby"],
+        surname2: ["Aldersey", "Crane", "Moxley", "Birchard", "Pellew", "Wainscott"],
+        saint:    ["Cuthbert", "Hildegard", "Ambrose", "Bartholomew", "Ethelreda"],
+        epithet:  ["Reasonably Priced", "Mildly Concerned", "Overcommitted", "Well-Endowed", "Unbothered"]
+      } },
+
+    { min: 50, label: "State University",
+      templates: ["University of {state} at {town}", "{state} State University", "{state} Tech",
+                  "University of Northern Southern {state}", "The {state} University of Agriculture, Mechanics, and Marketing"],
+      slots: {
+        state: ["Ohio", "Vermont", "Nebraska", "Oregon", "Delaware", "New Mexico", "Kansas", "Michigan", "Virginia"],
+        town:  ["Normal", "Boring", "Truth or Consequences", "Intercourse", "Accident", "Hell", "Nothing", "Why"]
+      } },
+
+    { min: 90, label: "Ivy League",
+      templates: ["{surname} University", "Old {surname}", "The {surname} Institute of Being Right",
+                  "{surname} University (Est. 1636, Allegedly)", "University of {surname} and {surname2}"],
+      slots: {
+        surname:  ["Vandermeer", "Ashcombe", "Wexley", "Harkness", "Pellingham", "Stuyvesant-Hale", "Throckmorton"],
+        surname2: ["Endicott", "Van Rensselaer", "Coldwater", "Grosvenor"]
+      } }
+  ];
+
+  // =====================================================================
+  // LAB — grad student names and personalities
+  // =====================================================================
+
+  window.GRAD_NAMES = [
+    "Priya", "Kevin", "Oksana", "Mateo", "Aisha", "Tobias", "Mei", "Dmytro", "Fatima", "Liam",
+    "Chiara", "Kwame", "Ingrid", "Rahul", "Yuki", "Sofía", "Emeka", "Hannah", "Arjun", "Zeynep",
+    "Nikolai", "Grace", "Tariq", "Maren"
+  ];
+
+  window.GRAD_QUIRKS = [
+    "has opinions about Foucault", "is secretly writing a novel", "runs the department Discord",
+    "carries a Nalgene everywhere", "keeps asking about the job market", "has not been seen since March",
+    "is suspiciously good at R", "cites Wikipedia with confidence", "brings a different sourdough every week",
+    "is on their fourth dissertation topic", "replies to email within ninety seconds", "owns a lab coat for fun"
+  ];
+
+  // =====================================================================
+  // NEWS FEED LINES
+  // =====================================================================
+
+  window.REVIEW_QUIPS = [
+    "Recommendation: major revisions. Tone: minor menace.",
+    "You wrote \"the authors should consider\" eleven times.",
+    "You were Reviewer 2. You didn't mean to be. It just happened.",
+    "Accept with minor revisions. You feel generous and slightly suspicious of yourself.",
+    "Four hours on a paper that cited you zero times. You noted this, professionally."
+  ];
+
+  window.GRANT_FAIL_QUIPS = [
+    "Not funded. Reviewers called your approach \"ambitious,\" which is not a compliment.",
+    "Not funded. One reviewer seems to have read a different proposal.",
+    "Not funded. Your score was \"Very Good,\" the worst possible kind of Very Good.",
+    "Not funded. The panel loved it and funded someone else's."
+  ];
 
 })();

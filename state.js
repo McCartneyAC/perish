@@ -71,7 +71,13 @@ const DEFAULT_STATE = {
       monograph:  1
     },
     paperQualityBonus:  0,
-    grantAptitudeBonus: 0
+    grantAptitudeBonus: 0,
+    burnoutMult:        1,
+    debtStressMult:     1,
+    tierSpread:         0,
+    grantChance:        0,
+    gradMorale:         0,
+    reviewSelfCite:     0
   },
 
   // ── Affiliations ──────────────────────────────────────────────────────
@@ -101,6 +107,28 @@ const DEFAULT_STATE = {
   universityPrestige: 0,
   hsPrestige:         0,   // banked in high school; added to SAT prestige at admission
 
+  money:  0,   // dollars; can go negative if your lab outspends you
+  debt:   0,   // student loans; accrue interest, repaid from salary after the PhD
+
+  editorGoodwill: 0,     // from reviewing; spent to tilt your next publication upward
+  gradStudents:   [],    // { name, quirk, ageTicks, progress, morale }
+  alumni:         0,     // graduated students; they cite you forever
+
+  news: [],              // recent happenings, newest first (NEWS_MAX)
+
+  stats: {
+    shiftsWorked:  0,
+    tuitionBilled: 0,    // your share, after family and aid
+    borrowed:      0,
+    grantsTried:   0,
+    grantsWon:     0,
+    grantResubmits: 0,   // failed attempts since the last win; each nudges the odds up
+    reviewsDone:   0,
+    ideasStolen:   0,
+    timesCaught:   0,
+    tenureDenials: 0
+  },
+
   // ── Active landmark ───────────────────────────────────────────────────
   // Only one landmark can be in progress at a time.
   activeLandmark: null,   // landmark id or null
@@ -127,7 +155,9 @@ const DEFAULT_STATE = {
   timers: {
     draftAccumulator:      0,
     knowledgeAccumulator:  0,
-    draftsSinceMilestone:  0    // triggers HS milestone events at intervals
+    draftsSinceMilestone:  0,   // triggers HS milestone events at intervals
+    tenureClock:           null, // ticks left on the tenure track; null off it
+    readyAt:               {}    // actionId → timestamp (ms) when its cooldown ends
   },
 
   // ── Milestone selection ────────────────────────────────────────────────

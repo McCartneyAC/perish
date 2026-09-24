@@ -45,6 +45,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start this level's landmark if a save arrived here without it running
   ensureLevelLandmark();
 
+  // Saves from before university names existed get one
+  ensureUniversityName();
+
   // Wire all button event listeners
   wireEvents();
 
