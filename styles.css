@@ -111,7 +111,7 @@ header h1 { margin: 0; }
   width: min(440px, 92vw);
   padding: 10px 20px 14px 22px;
   background: #fffefa;
-  transform: rotate(-1.2deg);
+  transform: rotate(-1.5deg);
   box-shadow:
     0 1px 1px rgba(60, 42, 18, 0.22),
     0 12px 20px -10px rgba(60, 42, 18, 0.40);
@@ -193,7 +193,7 @@ header h1 { margin: 0; }
     0 1px 1px rgba(60, 42, 18, 0.14),
     0 2px 4px rgba(60, 42, 18, 0.07),
     0 14px 26px -12px rgba(60, 42, 18, 0.32);
-  transform: rotate(var(--panel-tilt, 0deg));
+  transform: rotate(var(--panel-tilt, 30.2deg));
 }
 .panel button { max-width: 100%; }
 /* Each panel sits slightly askew, like papers on a desk */
@@ -395,7 +395,33 @@ button:nth-child(even) {
   margin-left: 14px;
 }
 
-/* Research lab */
+/* ── Research Lab: a sheet laid across the bottom half of Stats and Actions ── */
+.lab-toggle {
+  float: right;
+  font-size: 13px;
+  margin: 2px 0 0;
+  padding: 3px 8px;
+}
+.lab-stowed > :not(h2) { display: none; }            /* put away: just the heading shows */
+.lab-stowed h2 { margin-bottom: 0; }
+
+@media (min-width: 1001px) {
+  #dashboard { position: relative; }
+  #panel_lab {
+    position: absolute;
+    left: calc(20px + (100% - 40px - 2 * var(--gap)) / 6);   /* halfway through column 1 */
+    width: calc((100% - 40px - 2 * var(--gap)) / 3);   /* one column wide, spans into column 2 */
+    top: 50%;
+    z-index: 2;
+    transform: rotate(1.9deg);
+    box-shadow:                                         /* lifted a little higher than the rest */
+      0 1px 2px rgba(60, 42, 18, 0.18),
+      0 4px 8px rgba(60, 42, 18, 0.10),
+      0 22px 36px -14px rgba(60, 42, 18, 0.45);
+  }
+  #panel_lab.lab-stowed { top: auto; }
+}
+
 #lab_shop button, #lab_actions button { display: block; margin: 4px 0; text-align: left; width: 100%; }
 .lab-owned { opacity: 0.6; font-size: 0.9em; }
 .lab-student { margin: 6px 0 6px 10px; }

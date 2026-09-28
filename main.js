@@ -51,6 +51,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Saves from before the lab existed get their startup package
   ensureLabState();
 
+  // This game's foundational texts
+  ensureFoundationalOrder();
+
   // New games open with a line of story
   seedOpeningNews();
 

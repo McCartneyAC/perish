@@ -94,7 +94,15 @@
 
   // ── Grants ───────────────────────────────────────────────────────────
   window.GRANT_ENERGY_COST          = 30;
-  window.GRANT_DRAFT_COST           = 15;
+  window.GRANT_DRAFT_COST           = { 4: 15, 5: 15, 6: 10, 7: 8, 8: 5, 9: 5 };
+  window.GRANT_AWARD_BAND           = {
+    4: [40000, 80000],        // postdoc: NSF postdoctoral fellowship
+    5: [25000, 50000],        // adjunct: modest startup grants
+    6: [400000, 800000],      // TT: major NSF/NIH grants
+    7: [800000, 1500000],     // tenured: established researcher tier
+    8: [1500000, 2500000],    // habilitation: build major infrastructure
+    9: [2500000, 5000000]     // emeritus: mega-grants. buy particle accelerators.
+  };
   window.GRANT_COOLDOWN_MS          = 45000;
   window.GRANT_BASE_CHANCE          = 0.12;
   window.GRANT_H_CHANCE             = 0.006;  // per point of h-index
@@ -216,7 +224,7 @@
   // after `afterDrafts` drafts since the last milestone, one eligible event
   // is picked and shown as a button. See maybeSelectMilestone() in helpers.js.
   // Default afterDrafts per level; an event can override with its own afterDrafts.
-  window.MILESTONE_DRAFT_INTERVAL   = { 0: 6, 1: 8 };
+  window.MILESTONE_DRAFT_INTERVAL   = { 0: 6, 1: 7 };
 
   // High school length in drafts (≈ credits you arrive at college with).
   // HS events gate on hsYear() (1–4), so changing this rescales them all.
@@ -614,13 +622,19 @@
       cooldownMs:  window.GRANT_COOLDOWN_MS,
       canDo:       (s) => {
         if (inCooldown()) return { ok: false, reason: "burned out" };
-        if ((s.drafts ?? 0) < window.GRANT_DRAFT_COST) return { ok: false, reason: `needs ${window.GRANT_DRAFT_COST} drafts` };
+        const dc = window.GRANT_DRAFT_COST[s.levelIndex] ?? 15;
+        if ((s.drafts ?? 0) < dc) return { ok: false, reason: `needs ${dc} drafts` };
         return { ok: true, reason: "" };
       },
-      detail:      (s) => `${window.GRANT_DRAFT_COST} drafts, ~${Math.round(grantChance() * 100)}% odds, $${fmtMoney(window.GRANT_AWARD[s.levelIndex] ?? 0)}${s.levelIndex >= window.LAB_LEVEL ? " to the lab" : ""}`,
-      cost:        () => [
+      detail:      (s) => {
+        const dc = window.GRANT_DRAFT_COST[s.levelIndex] ?? 15;
+        const band = window.GRANT_AWARD_BAND[s.levelIndex] ?? [0,0];
+        const avg = Math.round((band[0] + band[1]) / 2);
+        return `${dc} drafts, ~${Math.round(grantChance() * 100)}% odds, $${fmtMoney(avg)}±${s.levelIndex >= window.LAB_LEVEL ? " to lab" : ""}`;
+      },
+      cost:        (s) => [
         { op: "add", path: "energy", value: -window.GRANT_ENERGY_COST },
-        { op: "add", path: "drafts", value: -window.GRANT_DRAFT_COST }
+        { op: "add", path: "drafts", value: -(window.GRANT_DRAFT_COST[s.levelIndex] ?? 15) }
       ],
       apply:       () => submitGrant()
     },
@@ -783,6 +797,8 @@
       slot:        "hs_club",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_club,
+      cost:        { money: 300 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.04, knowledgeMult: 1.02 },
         traits: { openness: +3, conscientiousness: +1 },
@@ -811,6 +827,8 @@
       slot:        "hs_club",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_club,
+      cost:        { money: 120 }
+      ,
       effects: {
         modifiers: { knowledgeMult: 1.04, writeCostMult: 0.95 },
         traits: { conscientiousness: +3, extraversion: +1, neuroticism: -2 },
@@ -868,6 +886,8 @@
       slot:        "hs_club",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_club,
+      cost:        { money: 80 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.02, knowledgeMult: 1.02 },
         traits: { openness: +4, neuroticism: +1 },
@@ -939,6 +959,8 @@
       slot:        "college_club",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 1 && !s.affiliations?.college_club,
+      cost:        { money: 800 }
+      ,
       effects: {
         modifiers: {
           energyRegenMult: 0.95,
@@ -1215,6 +1237,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 90 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.08, knowledgeMult: 0.98 },
         traits: { conscientiousness: +3, neuroticism: -2 },
@@ -1244,6 +1268,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 400 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.06, citationMult: 1.01 },
         traits: { extraversion: +4, conscientiousness: +1, agreeableness: +2 },
@@ -1259,6 +1285,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 80 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.07, knowledgeMult: 0.97 },
         traits: { extraversion: +3, conscientiousness: +1, agreeableness: +1 },
@@ -1274,6 +1302,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 60 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.10, knowledgeMult: 0.99 },
         traits: { conscientiousness: +3, neuroticism: -2, agreeableness: +1 },
@@ -1288,6 +1318,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 100 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.06, knowledgeMult: 0.98 },
         traits: { extraversion: +2, conscientiousness: +2, agreeableness: +1 },
@@ -1303,6 +1335,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 150 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.05, knowledgeMult: 1.01 },
         traits: { conscientiousness: +2, openness: +1 },
@@ -1318,6 +1352,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 60 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.06, knowledgeMult: 0.99 },
         traits: { extraversion: +3, agreeableness: +2, conscientiousness: +1 },
@@ -1332,6 +1368,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 90 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.09, knowledgeMult: 0.97 },
         traits: { conscientiousness: +3, neuroticism: -2, openness: +1 },
@@ -1346,6 +1384,8 @@
       slot:        "hs_sport",
       exclusive:   true,
       visibleWhen: (s) => s.levelIndex === 0 && !s.affiliations?.hs_sport,
+      cost:        { money: 150 }
+      ,
       effects: {
         modifiers: { energyRegenMult: 1.04, knowledgeMult: 0.98 },
         traits: { extraversion: +2, agreeableness: +2, conscientiousness: +1 },
@@ -1380,6 +1420,64 @@
         knowledge: .1,    // +1 knowledge per 10 ticks
         drafts:    0.1    // fractional — accumulates in helpers.js before applying
       }
+    },
+
+    // ─── CAREER MILESTONES ───────────────────────────────────────
+    pulitzer_prize: {
+      id: "pulitzer_prize", label: "Win the Pulitzer Prize",
+      blurb: "People cite you without reading you.",
+      visibleWhen: (s) => s.levelIndex >= 7 && !s.perks?.pulitzer_prize && (s.publications ?? 0) >= 50,
+      cost: {}, effects: { modifiers: { citationMult: 1.20 }, prestigeDelta: 25 }
+    },
+    nobel_prize: {
+      id: "nobel_prize", label: "Win the Nobel Prize",
+      blurb: "You'll get confused for the Physics winner.",
+      visibleWhen: (s) => s.levelIndex === 9 && !s.perks?.nobel_prize && (s.publications ?? 0) >= 80 && (calcHIndex?.() ?? 0) >= 35,
+      cost: {}, effects: { modifiers: { citationMult: 2.0 }, prestigeDelta: 50 }
+    },
+    public_intellectual: {
+      id: "public_intellectual", label: "Become a Public Intellectual",
+      blurb: "Op-eds, podcasts, book deals. Your grad students wonder when you sleep.",
+      visibleWhen: (s) => s.levelIndex >= 7 && !s.perks?.public_intellectual && (s.publications ?? 0) >= 40 && (s.universityPrestige ?? 0) >= 60,
+      cost: {}, effects: { modifiers: { citationMult: 1.15, paperMult: 1.10 } }
+    },
+    research_makes_news: {
+      id: "research_makes_news", label: "Your Research Makes National News",
+      blurb: "Three days on the homepage. The PR office calls.",
+      visibleWhen: (s) => s.levelIndex >= 6 && !s.perks?.research_makes_news && calcTotalCitations() >= 300,
+      cost: {}, effects: { modifiers: { citationMult: 1.12 } },
+      onJoin: (s) => pushNews("News: 'Researcher says [your finding] could change [everything].'")
+    },
+    department_chair: {
+      id: "department_chair", label: "Become Department Chair",
+      blurb: "Budget spreadsheets and faculty feuds. Pay bump: $3k/year.",
+      visibleWhen: (s) => s.levelIndex >= 7 && !s.perks?.department_chair && (s.publications ?? 0) >= 35 && (s.universityPrestige ?? 0) >= 50,
+      cost: {}, apply: (s) => { s.money += 3000; },
+      effects: { modifiers: { citationMult: 1.05 } }
+    },
+    editorial_board: {
+      id: "editorial_board", label: "Join a Journal's Editorial Board",
+      blurb: "Decline papers. Occasionally catch something important.",
+      visibleWhen: (s) => s.levelIndex >= 6 && !s.perks?.editorial_board && (calcHIndex?.() ?? 0) >= 15 && (s.publications ?? 0) >= 30,
+      cost: {}, effects: { modifiers: { citationMult: 1.08 } }
+    },
+    book_contract: {
+      id: "book_contract", label: "Sign a Book Contract",
+      blurb: "Trade two years for royalties that never arrive.",
+      visibleWhen: (s) => s.levelIndex >= 6 && !s.perks?.book_contract && (s.publications ?? 0) >= 25 && (s.knowledge ?? 0) >= 800,
+      cost: {}, effects: { modifiers: { paperMult: 1.15 }, prestigeDelta: 10 }
+    },
+    mentorship_legacy: {
+      id: "mentorship_legacy", label: "Build a Mentorship Legacy",
+      blurb: "Your students succeed. Your students' students cite you.",
+      visibleWhen: (s) => s.levelIndex >= 7 && !s.perks?.mentorship_legacy && (s.alumni ?? 0) >= 5,
+      cost: {}, effects: { modifiers: { citationMult: 1.25 } }
+    },
+    tenure_review_committee: {
+      id: "tenure_review_committee", label: "Serve on External Tenure Review Committees",
+      blurb: "Judge others as you were judged. Usually kinder.",
+      visibleWhen: (s) => s.levelIndex >= 7 && !s.perks?.tenure_review_committee && (s.publications ?? 0) >= 40,
+      cost: {}, effects: { modifiers: { citationMult: 1.10 } }
     },
 
     studygroup_masters: {
@@ -2146,6 +2244,65 @@
     }
   };
 
+  // ─── FOUNDATIONAL TEXTS ───────────────────────────────────────
+  // Pool of 40 canonical texts, drawn at random to 20 per game, unlocking every 5 drafts.
+  window.FOUNDATIONAL_TEXTS = [
+    ["the_republic", "The Republic", "Plato", "Justice is harmony. Your committee will disagree."],
+    ["the_prince", "The Prince", "Machiavelli", "It is better to be feared than loved in peer review."],
+    ["leviathan", "Leviathan", "Hobbes", "Life outside tenure is solitary, poor, nasty, and short."],
+    ["discourse_on_method", "Discourse on Method", "Descartes", "I think, therefore I am. I cite, therefore I exist."],
+    ["wealth_of_nations", "The Wealth of Nations", "Adam Smith", "The invisible hand doesn't write literature reviews."],
+    ["communist_manifesto", "The Communist Manifesto", "Marx & Engels", "A specter is haunting academia."],
+    ["origin_of_species", "On the Origin of Species", "Darwin", "Survival of the most published."],
+    ["interpretation_of_dreams", "The Interpretation of Dreams", "Freud", "Sometimes a dissertation is just a dissertation."],
+    ["protestant_ethic", "The Protestant Ethic and the Spirit of Capitalism", "Weber", "Your work ethic is a theological problem."],
+    ["structure_of_scientific_revolutions", "The Structure of Scientific Revolutions", "Kuhn", "Normal science is what you do when nothing interesting happens."],
+    ["orientalism", "Orientalism", "Said", "Knowledge is never innocent. Neither is your framework."],
+    ["the_selfish_gene", "The Selfish Gene", "Dawkins", "You're a gene's way of getting tenure."],
+    ["discipline_and_punish", "Discipline and Punish", "Foucault", "The department is watching. It always has."],
+    ["a_theory_of_justice", "A Theory of Justice", "Rawls", "Behind the veil of ignorance, everyone deserves peer review."],
+    ["the_second_sex", "The Second Sex", "de Beauvoir", "One is not born academic. One becomes one."],
+    ["simulacra_and_simulation", "Simulacra and Simulation", "Baudrillard", "The abstract precedes the paper."],
+    ["thinking_fast_and_slow", "Thinking, Fast and Slow", "Kahneman", "System 1 clicks. System 2 writes."],
+    ["what_is_it_like_to_be_a_bat", "What Is It Like to Be a Bat?", "Nagel", "Something it is like to be ABD."],
+    ["godel_escher_bach", "Gödel, Escher, Bach", "Hofstadter", "Strange loops all the way down."],
+    ["pedagogy_of_the_oppressed", "Pedagogy of the Oppressed", "Freire", "The banking model won't survive your seminar."],
+    ["ulysses", "Ulysses", "Joyce", "One day in Dublin, 730 pages. You'll claim you finished it."],
+    ["voyage_of_the_beagle", "The Voyage of the Beagle", "Darwin", "Five years at sea. Your grant covers two weeks."],
+    ["the_odyssey", "The Odyssey", "Homer", "Ten years to get home. Your PhD is in year seven."],
+    ["meditations", "Meditations", "Marcus Aurelius", "Emperor's notes on staying calm. He never did peer review."],
+    ["critique_of_pure_reason", "Critique of Pure Reason", "Kant", "Everyone has an opinion. Almost no one finished it."],
+    ["beyond_good_and_evil", "Beyond Good and Evil", "Nietzsche", "Whoever fights Reviewer 2 becomes Reviewer 2."],
+    ["the_social_contract", "The Social Contract", "Rousseau", "Man is free and everywhere in committee meetings."],
+    ["walden", "Walden", "Thoreau", "He lived deliberately. His mother did his laundry."],
+    ["silent_spring", "Silent Spring", "Rachel Carson", "One book. A whole field had to change."],
+    ["a_room_of_ones_own", "A Room of One's Own", "Woolf", "Five hundred a year and a lock. You get a keycard."],
+    ["principia", "Principia", "Newton", "Standing on shoulders of giants to see over them."],
+    ["things_fall_apart", "Things Fall Apart", "Achebe", "The centre cannot hold. Nor can committees."],
+    ["being_and_time", "Being and Time", "Heidegger", "Being is time. Specifically, the time this chapter takes."],
+    ["souls_of_black_folk", "The Souls of Black Folk", "Du Bois", "Written in 1903. Still right. Take notes."],
+    ["don_quixote", "Don Quixote", "Cervantes", "Reads books, tilts at windmills. Relatable."],
+    ["the_art_of_war", "The Art of War", "Sun Tzu", "Know yourself. Your enemy is Reviewer 2."],
+    ["brief_history_of_time", "A Brief History of Time", "Hawking", "Millions own it. Shelf decoration."],
+    ["course_in_general_linguistics", "Course in General Linguistics", "Saussure", "Assembled from lecture notes. Yours are being taken."],
+    ["elements", "Elements", "Euclid", "Thirteen books. No bibliography. Two thousand years."],
+    ["democracy_in_america", "Democracy in America", "Tocqueville", "Nine months fieldwork, one definitive account."]
+  ];
+
+  // Add foundational text perks dynamically
+  window.FOUNDATIONAL_SLOTS = 20;
+  window.FOUNDATIONAL_START = 20;
+  window.FOUNDATIONAL_EVERY = 5;
+  for (const [id, label, author, blurb] of window.FOUNDATIONAL_TEXTS) {
+    window.PERKS[id] = {
+      id, label: `Read ${label}`, author, blurb,
+      category:    "foundational_text",
+      visibleWhen: (s) => foundationalUnlocked(s, id) && !s.flags?.dissertationDefended && !s.perks?.[id],
+      cost:        { energy: 50 },
+      reward:      { knowledgePerStudy: 0.05 }
+    };
+  }
+
   // Milestone events don't hand-write visibleWhen: they're visible only while
   // they're the one event picked for this cycle (see helpers.js).
   for (const [id, perk] of Object.entries(window.PERKS)) {
@@ -2426,42 +2583,83 @@
   ];
 
   window.LAB_ITEMS = {
-    standing_desk:    { label: "Standing Desk",               cost: 1200,   minLevel: 5,
+    // ─── TIER 1: Getting started (level 5–6) ─────────────────────
+    standing_desk:    { label: "Standing Desk",               cost: 4000,   minLevel: 5,
       modifiers: { energyRegenMult: 1.03 },
       blurb: "You'll stand at it twice. After that it's a very tall shelf, which also helps somehow." },
-    espresso:         { label: "Espresso Machine",            cost: 3000,   minLevel: 5,
-      modifiers: { gradMorale: 0.10 },
-      blurb: "The lab's only reliable source of motivation." },
-    ping_pong:        { label: "Ping-Pong Table",             cost: 2500,   minLevel: 6,
+    espresso:         { label: "Espresso Machine",            cost: 8000,   minLevel: 5,
+      modifiers: { gradMorale: 0.10, energyMaxBonus: 20, energyRegenMult: 1.15 },
+      blurb: "Espresso for your students. Stimulants for you." },
+    ping_pong:        { label: "Ping-Pong Table",             cost: 6000,   minLevel: 6,
       modifiers: { gradMorale: 0.08, gradSpeedMult: 0.95 },
       blurb: "Morale is up. Output is, technically, down." },
-    website:          { label: "Lab Website",                 cost: 5000,   minLevel: 5,
+    website:          { label: "Lab Website",                 cost: 12000,  minLevel: 5,
       modifiers: { citationMult: 1.03 }, once: { identity: { reputation: 3 } },
       blurb: "Features a stock photo of a microscope. You don't use microscopes." },
-    monitors:         { label: "Second Monitors for Everyone", cost: 8000,  minLevel: 6,
+    monitors:         { label: "Second Monitors for Everyone", cost: 20000,  minLevel: 6,
       modifiers: { gradSpeedMult: 1.10 },
       blurb: "Now they can ignore the analysis on two screens at once." },
-    stats_license:    { label: "Statistical Software License", cost: 15000, minLevel: 5,
+    stats_license:    { label: "Statistical Software License", cost: 40000,  minLevel: 5,
       modifiers: { paperQualityBonus: 5 },
       blurb: "The renewal fee is a problem for future you." },
-    travel:           { label: "Conference Travel Budget",    cost: 20000,  minLevel: 5,
+    travel:           { label: "Conference Travel Budget",    cost: 50000,  minLevel: 5,
       modifiers: { "pubTypeMult.conference": 1.10 }, once: { identity: { network: 3 } },
       blurb: "Your students present posters in hotel basements across the nation." },
-    grant_consultant: { label: "Grant-Writing Consultant",    cost: 25000,  minLevel: 6,
+    grant_consultant: { label: "Grant-Writing Consultant",    cost: 60000,  minLevel: 6,
       modifiers: { grantChance: 0.08 },
       blurb: "She's never heard of your field and writes better proposals than you do." },
-    open_access:      { label: "Open-Access Fund",            cost: 30000,  minLevel: 6,
+    open_access:      { label: "Open-Access Fund",            cost: 75000,  minLevel: 6,
       modifiers: { citationMult: 1.10 },
       blurb: "Pay the journal so people can read your work. The journal thanks you." },
-    lab_manager:      { label: "Lab Manager",                 cost: 10000,  minLevel: 6, upkeep: 45000,
+    lab_manager:      { label: "Lab Manager",                 cost: 25000,  minLevel: 6, upkeep: 45000,
       modifiers: { energyRegenMult: 1.10, gradMorale: 0.05 },
       blurb: "Someone who knows where the purchase orders go. $45,000 a year from lab funds." },
-    server_rack:      { label: "Server Rack in the Closet",   cost: 60000,  minLevel: 6, minSpace: 1,
+    server_rack:      { label: "Server Rack in the Closet",   cost: 150000, minLevel: 6, minSpace: 1,
       modifiers: { gradSpeedMult: 1.25 },
       blurb: "Loud, hot, and the real reason the closet has a window." },
+
+    // ─── TIER 2: Real equipment (level 7–8) ─────────────────────
     mass_spec:        { label: "Mass Spectrometer",           cost: 500000, minLevel: 7, minSpace: 2,
       modifiers: { gradSpeedMult: 1.30, paperQualityBonus: 8 },
-      blurb: "Nobody knows how to run it except a fourth-year who's about to graduate." }
+      blurb: "Nobody knows how to run it except a fourth-year who's about to graduate." },
+    genomic_lab:      { label: "Genomic Sequencing Lab",      cost: 750000, minLevel: 7, minSpace: 3, upkeep: 50000,
+      modifiers: { gradSpeedMult: 1.40, citationMult: 1.20 },
+      blurb: "Four generations of sequencers stacked on top of each other. It works." },
+    cryo_em:          { label: "Cryo-Electron Microscopy",    cost: 1200000, minLevel: 8, minSpace: 3, upkeep: 60000,
+      modifiers: { gradSpeedMult: 1.35, paperQualityBonus: 12 },
+      blurb: "Your building's electrical system is now your lab's primary constraint." },
+    gpu_cluster:      { label: "GPU Computing Cluster",       cost: 800000, minLevel: 7, minSpace: 2, upkeep: 35000,
+      modifiers: { gradSpeedMult: 1.45, energyRegenMult: 1.05 },
+      blurb: "Fifty thousand dollars a month in electricity. Worth it for benchmarks." },
+    climate_chamber:  { label: "Climate-Controlled Growing Chambers", cost: 400000, minLevel: 7, minSpace: 2,
+      modifiers: { gradSpeedMult: 1.25, gradMorale: 0.15 },
+      blurb: "Precisely simulate the Atacama Desert. Or just make the grad students hot." },
+    telescope:        { label: "Research Telescope Array",    cost: 600000, minLevel: 7, minSpace: 3,
+      modifiers: { citationMult: 1.25, gradSpeedMult: 1.20 },
+      blurb: "On the roof. The Department Chair didn't approve this yet." },
+    nmr:              { label: "NMR Spectrometer",            cost: 900000, minLevel: 8, minSpace: 2, upkeep: 40000,
+      modifiers: { paperQualityBonus: 10, gradSpeedMult: 1.32 },
+      blurb: "A superconducting magnet. Your MRI machine's posher sibling." },
+
+    // ─── TIER 3: Absurdity (level 9) ────────────────────────────
+    particle_accelerator: { label: "Tabletop Particle Accelerator",  cost: 2500000, minLevel: 9, minSpace: 4, upkeep: 150000,
+      modifiers: { paperQualityBonus: 20, citationMult: 1.50, gradSpeedMult: 1.60 },
+      blurb: "It's not the LHC. But you can hit things with electrons at unsettling speeds." },
+    ai_supercomputer: { label: "AI Training Supercomputer",   cost: 3000000, minLevel: 9, minSpace: 4, upkeep: 200000,
+      modifiers: { gradSpeedMult: 1.80, citationMult: 1.35 },
+      blurb: "Train large models in your basement. Your grad students will need hardhats." },
+    quantum_computer: { label: "Quantum Computing Rig",       cost: 2000000, minLevel: 9, minSpace: 3, upkeep: 120000,
+      modifiers: { paperQualityBonus: 25, citationMult: 1.60 },
+      blurb: "Technically a D-Wave. Practically a very expensive paperweight that sometimes works." },
+    satellite_array:  { label: "Satellite Data Array Access", cost: 1800000, minLevel: 9, minSpace: 2, upkeep: 80000,
+      modifiers: { citationMult: 1.40, gradSpeedMult: 1.50 },
+      blurb: "Real-time earth observation. You use it to watch the mail truck." },
+    deep_ocean_lab:   { label: "Deep-Sea Research Vessel",    cost: 5000000, minLevel: 9, minSpace: 4, upkeep: 300000,
+      modifiers: { paperQualityBonus: 30, citationMult: 1.70, gradSpeedMult: 2.0 },
+      blurb: "Your department doesn't know about this yet. They will. The Dean will have words." },
+    hpc_center:       { label: "High-Performance Computing Center", cost: 4500000, minLevel: 9, minSpace: 4, upkeep: 250000,
+      modifiers: { gradSpeedMult: 2.50, citationMult: 1.45 },
+      blurb: "A full data center. Your power bill just surpassed your salary." }
   };
 
   // What the news says when you arrive somewhere new ({name} is filled in)

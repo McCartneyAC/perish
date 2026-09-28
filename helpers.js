@@ -257,6 +257,8 @@ function joinAffiliation(registry, id) {
 
   const slot = affiliation.slot;
   if (affiliation.exclusive && state.affiliations[slot]) return false;
+  if (!canPay(affiliation.cost?.money ?? 0))              return false;
+  if (affiliation.cost?.money) pay(affiliation.cost.money);
 
   applyOneTimeEffects(affiliation.effects);
 
@@ -288,9 +290,11 @@ function unlockPerk(perkId) {
 
   // Check cost
   const cost = perk.cost || {};
+  const maxEnergy = (window.ENERGY_MAX ?? 100) + (state.modifiers.energyMaxBonus ?? 0);
   if ((cost.knowledge ?? 0) > state.knowledge) return false;
   if ((cost.drafts    ?? 0) > state.drafts)     return false;
   if ((cost.energy    ?? 0) > state.energy)     return false;
+  if (!canPay(cost.money ?? 0))                  return false;
 
   // Spend cost
   state.knowledge -= (cost.knowledge ?? 0);
@@ -298,6 +302,7 @@ function unlockPerk(perkId) {
   if ((cost.energy ?? 0) > 0) {
     if (!spendEnergy(cost.energy)) return false;
   }
+  if (cost.money) pay(cost.money);
   state.perks[perkId] = true;
 
   // Milestone claimed → start the next cycle
@@ -314,8 +319,12 @@ function unlockPerk(perkId) {
     state.knowledgePerStudy = (state.knowledgePerStudy ?? 1) + perk.reward.knowledgePerStudy;
   }
 
+  // Arbitrary one-time state changes (mirrors ACTIONS' apply pattern)
+  if (perk.apply) perk.apply(state);
+
   // Lasting modifiers (effects.modifiers) take effect now
   rebuildModifiers();
+  if (perk.onJoin) perk.onJoin(state);
   return true;
 }
 
@@ -355,7 +364,8 @@ function maybeSelectMilestone() {
   if (current && !milestoneEligible(state, current)) state.selectedMilestoneEvent = null;
   if (state.selectedMilestoneEvent) return;
 
-  const eligible = Object.keys(window.PERKS ?? {}).filter(id => milestoneEligible(state, id));
+  const eligible = Object.keys(window.PERKS ?? {})
+    .filter(id => milestoneEligible(state, id) && canPay(window.PERKS[id].cost?.money ?? 0));
   if (!eligible.length) return;
 
   const weights = eligible.map(id => window.PERKS[id].milestone.weight ?? 1);
@@ -766,8 +776,9 @@ function advanceLandmark(actionId) {
   const def = activeLandmarkDef();
   if (!def) return false;
 
-  const gain = def.progressSources?.[actionId] ?? 0;
+  let gain = def.progressSources?.[actionId] ?? 0;
   if (gain <= 0) return false;
+  if (actionId === "write") gain *= window.LEVELS?.[state.levelIndex]?.draftsPerWrite ?? 1;
 
   state.landmarkProgress = Math.min(
     def.totalProgress,
@@ -1013,6 +1024,71 @@ function pushNews(text) {
   if (state.news.length > NEWS_MAX) state.news.length = NEWS_MAX;
 }
 
+// ── Foundational texts ───────────────────────────────────────────────
+// Which texts this game offers, in unlock order. Saves from before the pool
+// keep the original list; new games draw from all of FOUNDATIONAL_TEXTS.
+function ensureFoundationalOrder() {
+  if (Array.isArray(state.foundationalOrder) && state.foundationalOrder.length) return;
+  const ids = FOUNDATIONAL_TEXTS.map(t => t[0]);
+  if ((state.totalDraftsEver ?? 0) > 0) {
+    state.foundationalOrder = ids.slice(0, FOUNDATIONAL_SLOTS);
+    return;
+  }
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  state.foundationalOrder = ids.slice(0, FOUNDATIONAL_SLOTS);
+}
+
+// Has this text's slot come up yet?
+function foundationalUnlocked(s, id) {
+  const slot = (s.foundationalOrder ?? []).indexOf(id);
+  return slot >= 0 && (s.totalDraftsEver ?? 0) >= FOUNDATIONAL_START + FOUNDATIONAL_EVERY * slot;
+}
+
+// ── Paying for things ────────────────────────────────────────────────
+// Through college, family covers its SES share (same formula as tuition)
+function familyShare() {
+  if (state.levelIndex > 1) return 0;
+  return clamp(((state.traits?.ses ?? 50) - 20) / 60, 0, 1);
+}
+function outOfPocket(amount) { return Math.round((amount ?? 0) * (1 - familyShare())); }
+function canPay(amount)      { return (state.money ?? 0) >= outOfPocket(amount); }
+
+// Purchases need cash on hand
+function pay(amount) {
+  const you = outOfPocket(amount);
+  state.money -= you;
+  state.stats.spent = (state.stats.spent ?? 0) + you;
+  return you;
+}
+
+// Fees never block progress: savings first, the rest goes on your loans
+function chargeApplicationFee(kind) {
+  const you  = outOfPocket(APPLICATION_FEES[kind] ?? 0);
+  const cash = clamp(state.money ?? 0, 0, you);
+  state.money -= cash;
+  const borrowed = you - cash;
+  state.debt += borrowed;
+  state.stats.borrowed += borrowed;
+  state.stats.spent = (state.stats.spent ?? 0) + cash;
+  if (you > 0) pushNews(borrowed > 0
+    ? `Application fees: $${fmtMoney(you)}. $${fmtMoney(borrowed)} of it went on your loans.`
+    : `Application fees: $${fmtMoney(you)}.`);
+}
+function feeDetail(kind) {
+  const you = outOfPocket(APPLICATION_FEES[kind] ?? 0);
+  return you > 0 ? `$${fmtMoney(you)} in fees` : "";
+}
+
+// Button suffix for something with a price: your share, or who covered it
+function priceNote(amount) {
+  if (!amount) return "";
+  const you = outOfPocket(amount);
+  return you > 0 ? `$${fmtMoney(you)}` : "family pays";
+}
+
 // A fresh game starts with a line of story instead of an empty card
 function seedOpeningNews() {
   if (state.news?.length || state.levelIndex !== 0 || (state.totalDraftsEver ?? 0) > 0) return;
@@ -1184,12 +1260,17 @@ function grantChance() {
 function submitGrant() {
   state.stats.grantsTried += 1;
   if (Math.random() < grantChance()) {
-    const award = GRANT_AWARD[state.levelIndex] ?? 0;
-    if (state.levelIndex >= LAB_LEVEL) state.lab.funds += award;   // research money goes to research
-    else                               state.money     += award;   // a postdoc fellowship pays you
+    const band = GRANT_AWARD_BAND[state.levelIndex] ?? [0, 0];
+    const hBonus = Math.max(0, calcHIndex() - 10) / 50;
+    const prestigeBonus = (state.universityPrestige ?? 0) / 150;
+    const scale = 1 + hBonus + prestigeBonus;
+    const baseAward = band[0] + Math.random() * (band[1] - band[0]);
+    const award = Math.round(baseAward * scale);
+    if (state.levelIndex >= LAB_LEVEL) state.lab.funds += award;
+    else                               state.money     += award;
     state.stats.grantsWon += 1;
     state.stats.grantResubmits = 0;
-    pushNews(`Funded: $${fmtMoney(award)}, after the university's cut.`);
+    pushNews(`Funded: $${fmtMoney(award)}.`);
     return true;
   }
   state.stats.grantResubmits += 1;
@@ -1322,7 +1403,7 @@ function labItemStatus(id) {
   if (!item)                                         return { visible: false };
   if (state.lab.items[id])                           return { visible: true, owned: true };
   if (state.levelIndex < (item.minLevel ?? 0))       return { visible: false };
-  if ((state.lab.space ?? 0) < (item.minSpace ?? 0)) return { visible: true, ok: false, reason: `needs ${LAB_SPACES[item.minSpace].label.toLowerCase()}` };
+  if ((state.lab.space ?? 0) < (item.minSpace ?? 0)) return { visible: true, ok: false, reason: `needs ${LAB_SPACES[item.minSpace]?.label.toLowerCase() ?? "more space"}` };
   if (state.lab.funds < item.cost)                   return { visible: true, ok: false, reason: `$${fmtMoney(item.cost)}` };
   return { visible: true, ok: true };
 }

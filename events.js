@@ -30,6 +30,7 @@ function wireEvents() {
     const btn = e.target.closest("button");
     if (!btn || btn.disabled) return;
     const id = btn.id;
+    if (id === "lab_toggle")          { state.ui = state.ui ?? {}; state.ui.labStowed = !state.ui.labStowed; render(); return; }
     if (id === "lab_space_up")        { upgradeLabSpace(); render(); return; }
     if (id.startsWith("lab_item_"))   { buyLabItem(id.slice(9)); render(); return; }
     if (id.startsWith("act_"))        { doAction(id.slice(4)); return; }

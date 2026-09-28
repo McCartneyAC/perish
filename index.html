@@ -36,11 +36,6 @@
     <div id="hud_current"></div>
   </div>
 
-  <div class="panel" id="panel_cv">
-    <h2>Curriculum Vitæ</h2>
-    <div id="hud_cv"></div>
-  </div>
-
   <div class="panel" id="panel_other">
     <h2>Actions</h2>
     <!-- Publish UI — shown/hidden by render.js -->
@@ -53,8 +48,13 @@
   </div>
 
   <!-- Research lab — shown from adjunct on (LAB_LEVEL) -->
+  <div class="panel" id="panel_cv">
+    <h2>Curriculum Vitæ</h2>
+    <div id="hud_cv"></div>
+  </div>
+
   <div class="panel" id="panel_lab" style="display:none;">
-    <h2>Research Lab</h2>
+    <h2>Research Lab <button id="lab_toggle" class="lab-toggle" aria-expanded="true">Put away</button></h2>
     <div id="hud_lab"></div>
     <div id="lab_actions"></div>
     <div id="lab_shop"></div>

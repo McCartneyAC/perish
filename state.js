@@ -123,6 +123,8 @@ const DEFAULT_STATE = {
   gradStudents:   [],    // { name, quirk, ageTicks, progress, morale }
   alumni:         0,     // graduated students; they cite you forever
 
+  foundationalOrder: [],  // this game's foundational texts, in unlock order
+  ui: { labStowed: false },
   news: [],              // recent happenings, newest first (NEWS_MAX)
 
   stats: {

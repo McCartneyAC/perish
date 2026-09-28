@@ -131,6 +131,15 @@ function renderLab() {
   panel.style.display = open ? "" : "none";
   if (!open) return;
 
+  // Put away: the sheet slides down to just its heading
+  const stowed = !!state.ui?.labStowed;
+  panel.classList.toggle("lab-stowed", stowed);
+  const toggle = document.getElementById("lab_toggle");
+  if (toggle) {
+    toggle.textContent = stowed ? "Open the lab" : "Put away";
+    toggle.setAttribute("aria-expanded", String(!stowed));
+  }
+
   // Header: funds, burn rate, space
   const space = LAB_SPACES[state.lab.space ?? 0];
   const burn  = labAnnualCosts();
@@ -436,6 +445,16 @@ function renderPublishButtons() {
   }
 }
 
+// Club or sport button: price in the label; greyed out when the slot is taken
+// or you can't cover your share (the label never changes, so no resizing)
+function paintAffiliationButton(btn, a, slotTaken) {
+  const price = priceNote(a.cost?.money);
+  btn.textContent = price ? `${a.label} (${price})` : a.label;
+  const short = !slotTaken && !canPay(a.cost?.money ?? 0);
+  btn.title    = short ? `${a.blurb} Needs $${fmtMoney(outOfPocket(a.cost.money))}. A shift or two would cover it.` : a.blurb;
+  btn.disabled = slotTaken || short;
+}
+
 function renderAffiliationButtons() {
   const container = document.getElementById("panel_other");
   if (!container) return;
@@ -451,9 +470,7 @@ function renderAffiliationButtons() {
     }
     const visible = isVisible(club);
     btn.style.display = visible ? "" : "none";
-    btn.textContent   = club.label;
-    btn.title         = club.blurb;
-    btn.disabled      = !!state.affiliations[club.slot ?? "club"];
+    paintAffiliationButton(btn, club, !!state.affiliations[club.slot ?? "club"]);
   }
 
   // Majors
@@ -487,9 +504,7 @@ function renderSportButtons() {
     }
     const visible = isVisible(sport);
     btn.style.display = visible ? "" : "none";
-    btn.textContent   = sport.label;
-    btn.title         = sport.blurb;
-    btn.disabled      = !!state.affiliations.hs_sport;
+    paintAffiliationButton(btn, sport, !!state.affiliations.hs_sport);
   }
 }
 
@@ -515,13 +530,16 @@ function renderPerkButtons() {
         ? `✓ ${perk.label} — ${perk.author}`
         : `${icon} ${perk.label} — ${perk.author} (50 energy)`;
     } else if (perk.milestone) {
-      const e = perk.cost?.energy ?? 0;
-      btn.textContent = unlocked ? `✓ ${perk.label}` : `✦ ${perk.label}${e ? ` (${e} energy)` : ""}`;
+      const e     = perk.cost?.energy ?? 0;
+      const parts = [e ? `${e} energy` : "", priceNote(perk.cost?.money)].filter(Boolean).join(", ");
+      btn.textContent = unlocked ? `✓ ${perk.label}` : `✦ ${perk.label}${parts ? ` (${parts})` : ""}`;
     } else {
-      btn.textContent = unlocked ? `✓ ${perk.label}` : perk.label;
+      const price = priceNote(perk.cost?.money);
+      btn.textContent = unlocked ? `✓ ${perk.label}` : `${perk.label}${price ? ` (${price})` : ""}`;
     }
 
-    btn.title    = perk.blurb;   // hover tooltip
+    const short  = !unlocked && !canPay(perk.cost?.money ?? 0);
+    btn.title    = short ? `${perk.blurb} Needs $${fmtMoney(outOfPocket(perk.cost.money))}.` : perk.blurb;
     btn.disabled = unlocked || inCooldown() || !canAffordPerk(perk);
   }
 }
@@ -530,7 +548,8 @@ function canAffordPerk(perk) {
   const c = perk.cost || {};
   return (c.energy    ?? 0) <= state.energy
       && (c.knowledge ?? 0) <= state.knowledge
-      && (c.drafts    ?? 0) <= state.drafts;
+      && (c.drafts    ?? 0) <= state.drafts
+      && canPay(c.money ?? 0);
 }
 
 // ── Dev inspector (🧠 button) ──────────────────────────────────────────
