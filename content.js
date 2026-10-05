@@ -14,6 +14,12 @@
   window.ENERGY_MAX                 = 100;
   window.ENERGY_REGEN_PER_TICK      = .6;
 
+  // Career stamina: the energy bar grows with the career, and regeneration
+  // grows with it (a full refill always takes ~17 s before modifiers).
+  // Furniture, lab gear and habits add on top through energyMaxBonus.
+  //                               HS   UG   MA   PhD  PD   Adj  TT   Ten  Hab  Em
+  window.ENERGY_MAX_BY_LEVEL      = [100, 110, 125, 140, 160, 170, 200, 240, 270, 300];
+
   window.TEXTBOOK_ENERGY_COST       = 3;
   window.TEXTBOOK_STUDY_GAIN        = 1;
 
@@ -127,6 +133,7 @@
   window.GRAD_STIPEND_ANNUAL        = 35000;  // paid from lab funds every tick; hire with a year in the bank
   window.GRAD_PAPER_YEARS           = 2;      // one paper per student per ~2 years at normal morale
   window.GRAD_PROGRAM_YEARS         = 5;      // then they defend and leave
+  window.GRAD_DRAFTS_PER_YEAR       = 36;     // drafts each student writes on their own at morale 0.5 (×(0.5 + morale))
   window.GRAD_MORALE_BASE           = 0.6;    // 0..1; agreeableness shifts it
   window.GRAD_QUIT_MORALE           = 0.15;
   window.ALUMNI_CITE_EACH           = 0.03;   // citationMult per graduated student
@@ -165,7 +172,7 @@
   window.NEWS_MAX                   = 8;
 
   // Per-paper citation cap (histogram length − 1). Papers stop at this count.
-  window.HINDEX_BUCKET_MAX          = 500;
+  window.HINDEX_BUCKET_MAX          = 2000;   // raised for the endgame: an h of 500 was a wall
 
   // ── Citations ────────────────────────────────────────────────────────
   // Papers live in one citation histogram per quality tier:
@@ -576,7 +583,7 @@
       blurb:       (s) => s.levelIndex === 0
                      ? "Four hours folding sweaters at the mall. They'll be unfolded by 4:15."
                      : "Four hours at the library desk, telling people the printer is broken.",
-      visibleWhen: (s) => s.levelIndex <= 1,
+      visibleWhen: (s) => s.levelIndex <= 1 && !!s.perks?.get_a_job,
       canDo:       () => inCooldown() ? { ok: false, reason: "burned out" } : { ok: true, reason: "" },
       detail:      (s) => `+$${window.SHIFT_PAY[s.levelIndex] ?? 0}`,
       cost:        { energy: window.SHIFT_ENERGY_COST },
@@ -741,8 +748,9 @@
       // apply() handles non-numeric side effects: roll a quality tier and
       // file the new paper in that tier's histogram at 0 citations.
       apply: (s, payload) => {
-        addPaper(rollPaperTier(payload?.type));
+        const t = addPaper(rollPaperTier(payload?.type));
         s.editorGoodwill = 0;   // the editor's goodwill got you this far; it's spent
+        runHooks("published", 1, [t], payload?.type);
       }
     }
   };
@@ -1404,6 +1412,15 @@
   // =====================================================================
 
   window.PERKS = {
+    // The job comes first; shifts come after (see ACTIONS.work_shift)
+    get_a_job: {
+      id:          "get_a_job",
+      label:       "Get a Job",
+      blurb:       "Fill out an application that asks for your 'availability' and three references. You list your aunt twice.",
+      visibleWhen: (s) => s.levelIndex <= 1 && !s.perks?.get_a_job,
+      cost:        { energy: 50 }
+    },
+
     studygroup_undergrad: {
       id:          "studygroup_undergrad",
       label:       "Form a Study Group",
@@ -2321,6 +2338,7 @@
   window.LANDMARKS = {
     masters_thesis: {
       id:          "masters_thesis",
+      setsFlag:    "mastersThesisCompleted",
       label:       "Master's Thesis",
       blurb:       "Your first sustained argument. It will be revised. Repeatedly.",
       visibleWhen: (s) => s.levelIndex === 2 && !s.flags?.mastersThesisCompleted,
@@ -2352,6 +2370,7 @@
 
     dissertation: {
       id:          "dissertation",
+      setsFlag:    "dissertationDefended",
       label:       "Doctoral Dissertation",
       blurb:       "The document that will define you, haunt you, and eventually gather dust.",
       visibleWhen: (s) => s.levelIndex === 3 && !s.flags?.dissertationDefended,
@@ -2380,6 +2399,7 @@
 
     first_monograph: {
       id:          "first_monograph",
+      setsFlag:    "firstMonographCompleted",
       label:       "First Monograph",
       blurb:       "A book. Your book. The one you will be introduced by for the rest of your career.",
       visibleWhen: (s) => s.levelIndex >= 5   // adjunct+
@@ -2410,6 +2430,7 @@
 
     job_market: {
       id:          "job_market",
+      setsFlag:    "jobMarketCleared",
       label:       "The Job Market",
       blurb:       "Two hundred applications. Eight interviews. One offer. Maybe.",
       visibleWhen: (s) => s.levelIndex === 4   // postdoc
@@ -2425,7 +2446,10 @@
       ],
       progressSources: {
         write:        1.5,   // a weaker input — the market doesn't care how much you write
-        study_papers: 0.3
+        study_papers: 0.3,
+        publish:      18,    // the market cares a great deal what you published
+        write_grant:  12,
+        review_manuscript: 4
       },
       // Prestige is the dominant modifier here — the Harvard effect
       modifiers: {
@@ -2442,6 +2466,7 @@
 
     tenure_review: {
       id:          "tenure_review",
+      setsFlag:    "tenureGranted",
       label:       "Tenure Review",
       blurb:       "Six years of work, judged in a single year. Mostly by people in other departments.",
       visibleWhen: (s) => s.levelIndex === 6   // tenure track
@@ -2456,7 +2481,11 @@
       ],
       progressSources: {
         write:        1.0,
-        study_papers: 0.2
+        study_papers: 0.2,
+        publish:      22,
+        write_grant:  16,
+        review_manuscript: 5,
+        recruit_grad: 10
       },
       modifiers: {
         publications:        true,
@@ -2473,6 +2502,7 @@
 
     habilitation_opus: {
       id:          "habilitation_opus",
+      setsFlag:    "habilitationCompleted",
       label:       "Habilitation Opus",
       blurb:       "The work that proves you have moved beyond your dissertation. Finally.",
       visibleWhen: (s) => s.levelIndex === 7   // tenured — completing it gates entry to habilitation
@@ -2749,6 +2779,129 @@
     "Accept with minor revisions. You feel generous and slightly suspicious of yourself.",
     "Four hours on a paper that cited you zero times. You noted this, professionally."
   ];
+
+  // What the news says when a grad student publishes, quits, or defends ({name})
+  window.GRAD_PAPER_NEWS = [
+    "{name}'s paper was accepted. You're senior author, naturally.",
+    "{name}'s paper came back \"accept with minor revisions.\" They cried in the stairwell, the good kind.",
+    "{name} published. Their acknowledgments thank you \"for the freedom to work independently.\" You decide that's a compliment.",
+    "{name}'s first paper is out. They've already found a typo in the abstract. They'll find it every day for the rest of their life.",
+    "{name}'s paper is accepted at the third journal they tried. It's their favorite now.",
+    "{name} published a paper you don't remember reading. You're on it. You read it now. It's good."
+  ];
+  window.GRAD_QUIT_NEWS = [
+    "{name} left for industry. Their starting salary is higher than yours.",
+    "{name} has left the program to \"pursue other opportunities.\" The opportunity is sleep.",
+    "{name} quit to open a bakery. It has a four-hour line on Saturdays. You go sometimes. They're kind about it.",
+    "{name} left. Their exit interview is three words long. The department filed it under \"feedback.\""
+  ];
+  window.GRAD_DEFEND_NEWS = [
+    "Dr. {name} defended! They'll cite you for the rest of their career.",
+    "Dr. {name} passed with minor revisions. You give the toast. You cry a little, which surprises everyone, mostly you.",
+    "{name} defended. During questions, your external examiner asked about the one chapter you'd told them to cut.",
+    "Dr. {name}! The champagne is warm, the cheese cubes are sweating, and nobody has ever been happier."
+  ];
+
+  // =====================================================================
+  // NEWS ITEMS — one line on the news card when you join a club, declare a
+  // major, unlock a perk, or claim a milestone. A list picks one at random;
+  // a function gets the state. Modules add their own with Object.assign.
+  // =====================================================================
+  window.NEWS_ITEMS = {
+    get_a_job: "You're hired at the mall. Your name tag says \"Trainee\" and will for two years.",
+
+    // ── High school clubs
+    yearbook:     "You joined Yearbook. You now control how your entire class will be remembered. Use this power cruelly.",
+    drama:        ["You joined Drama Club. You will refer to the auditorium as \"the house\" for the rest of your life.", "Drama Club: you're Tree #3 in the fall play. You are the best Tree #3 this school has ever seen."],
+    band:         ["You joined Band. The clarinet section has a group chat, and it is unhinged.", "Band: you're third-chair trombone. First chair is a sophomore who has never practiced and never needed to."],
+    chess:        "You joined Chess Club. Four people, two boards, one argument about the Sicilian that will outlast the club.",
+    debate:       ["You joined Debate. You now say \"I'd push back on that\" at dinner. Your family would push back on that.", "Debate team: you learn to argue either side of anything, a skill you will later call 'peer review.'"],
+    newspaper:    "You joined the school paper. Your first assignment is the cafeteria. The cafeteria has secrets.",
+    math_club:    "You joined Math Club. The T-shirt has a pun on it. You understand the pun. That's the real membership card.",
+    science_club: "You joined Science Club. The faculty advisor has eyebrows that were singed in 1994 and never grew back right.",
+    art_club:     "You joined Art Club. The art teacher plays Joni Mitchell and calls everyone \"friend.\" It's the only room in the building you can breathe in.",
+
+    // ── College clubs
+    robotics: "You joined the Robotics Team. The robot has a name, a backstory, and more structural integrity than your sleep schedule.",
+    lab:      "You joined a research lab. Your title is \"undergraduate research assistant.\" Your job is labeling tubes in a cold room.",
+    greek:    "You pledged. You now own three pairs of letters and one opinion about other people's letters.",
+    theater:  "You joined Theater. Tech week is coming. Nobody will tell you what tech week is. They just look at you.",
+    gov:      "You joined Student Government. Your platform: \"better napkins.\" You won by eleven votes.",
+    litmag:   "You joined the Literary Magazine. Everyone wears a coat indoors and has a theory about the semicolon.",
+
+    // ── Sports
+    track:        "You joined Track. You run in circles for a living now, which is good practice for the dissertation.",
+    football:     "You made the football team. The coach calls you \"Professor\" because you read on the bus. It sticks.",
+    cheerleading: "You joined Cheerleading. You learn that the pyramid is a metaphor for academia: the top is small and everyone underneath is in pain.",
+    basketball:   "You joined Basketball. You're the sixth man, which, statistically, is how you'll be remembered in most things.",
+    swimming:     "You joined Swimming. You smell like chlorine until roughly your junior year of college.",
+    soccer:       "You joined Soccer. Orange slices at halftime remain the best catering of your academic career.",
+    tennis:       "You joined Tennis. You learn the word \"love\" means zero, which will come up again in the job market.",
+    volleyball:   "You joined Volleyball. You learn to say \"mine!\" with conviction, and later, about ideas, without it.",
+    crosscountry: "You joined Cross Country. Long distance, bad weather, no spectators: a perfect preview of a PhD.",
+    baseball:     "You joined Baseball. You spend most of every game in the outfield, thinking. Some of your best ideas come from right field.",
+
+    // ── Majors
+    stem:            "You declared Natural Sciences. Your parents tell the relatives you're going to be a doctor. You are, technically.",
+    humanities:      "You declared the Humanities. A relative asks what you'll do with that. You'll be answering for the rest of your life.",
+    fine_arts:       "You declared Fine Arts. Your critique group meets at midnight and has a strict rule about crying (allowed).",
+    engineering:     "You declared Engineering. You now believe every problem is a design problem, including your relationships.",
+    business_econ:   "You declared Business/Economics. Your first lecture is about incentives. You notice the professor's.",
+    social_science:  "You declared Social Science. You can now explain why everyone around you is the way they are, which helps nobody.",
+
+    // ── Study groups
+    studygroup_undergrad: "You formed a study group. There's a snack rotation. The snack rotation is the only thing that works.",
+    studygroup_masters:   "You organized a graduate seminar. Someone brings a 400-page book and assigns all of it for Tuesday.",
+    studygroup_doctoral:  "You convened a writing group. The first meeting is spent setting up a shared document. It's a very good document.",
+
+    // ── High school milestones
+    prom:                  ["You went to prom. The DJ played the same song three times. You danced to it three times.", "Prom: the corsage cost more than your first textbook. You still have it, pressed in a dictionary."],
+    school_play:           "You were in the school play. You forgot one line, improvised two, and got a laugh you've been chasing ever since.",
+    debate_tournament_win: "You won a debate tournament. You argued the side you didn't believe, and won, and now you don't know what you believe.",
+    science_fair_winner:   "You won the science fair. Everyone else made a volcano. You made a better volcano, with error bars.",
+    star_athlete:          "You're a star athlete now. The local paper misspells your name in the headline. Your grandmother frames it anyway.",
+    first_heartbreak:      ["Ashley doesn't feel the same way. You will think about this for longer than is reasonable.", "Ashley says you're \"like a brother.\" You read Sylvia Plath for a month and get very good at the SAT verbal section."],
+    perfect_attendance:    "Perfect attendance. Four years without a sick day. The certificate is laminated. Your immune system is a legend.",
+    hs_driving_test:       "You failed your driving test. The examiner wrote a full paragraph in the margin. You've written a full paragraph about it since.",
+    hs_summer_program:     "A summer program at a real university. You eat in a real dining hall and decide, quietly, that you're going to live here.",
+    hs_ap_week:            "You survived AP week. Five exams in four days, and a #2 pencil worn down to a philosophical position.",
+    hs_valedictorian:      "Valedictorian. Your speech quotes Robert Frost. The road less traveled turns out to be the one with the scholarship.",
+    hs_lead_role:          "You landed the lead. Opening night, your voice cracks on the high note. Your mother says it was \"brave.\"",
+    hs_superlative:        "\"Most Likely to Succeed.\" The yearbook staff (you) were unanimous.",
+    hs_band_trip:          "You survived the band trip. Six hours on a bus with the brass section. Nobody will ever explain the thing with the tuba.",
+    hs_scoop:              "Your school paper story about the vending machine contract gets you called to the principal's office. Your first taste of the press.",
+    hs_chess_tournament:   "You played a weekend chess tournament. You lost to an eight-year-old who said \"good game\" with genuine pity.",
+    hs_art_show:           "Your piece got into the district art show, by the fire exit. A janitor stood in front of it for a long time.",
+
+    // ── Undergraduate milestones
+    ug_roommate:           "You survived your roommate. The bagpipes stopped in April, for reasons that remain classified.",
+    ug_office_hours:       "You went to office hours. The professor lent you a book with \"return eventually\" written inside the cover. You never do.",
+    ug_all_nighter:        "Your first all-nighter. At 6 a.m. the birds start singing, and you understand for the first time that they're mocking you.",
+    ug_existential_crisis: "A 3 a.m. existential crisis. You realize you are a small speck in an indifferent universe, and also that the paper is due at nine.",
+    ug_study_abroad:       "A semester abroad. You come back saying \"cheers\" and meaning it. It wears off by Thanksgiving, mostly.",
+    ug_campus_protest:     "You joined a campus protest. You chant, you march, you write an op-ed. The administration forms a committee to study your concerns.",
+    ug_research_assistant: "You landed a research assistantship. Your first task: alphabetize a decade of reprints. You read every one. That was the point, it turns out.",
+    ug_grad_school_talk:   "\"You should think about grad school.\" Seven words, on the way to the copier. They change everything, and the professor will never remember saying them.",
+    ug_first_conference:   "Your first conference. You understand a fifth of the talks, all of the coffee, and that you want to be up there.",
+    ug_honors_thesis:      "You wrote an honors thesis. Forty pages, one reader, a footnote you're still proud of. Nobody else will ever read it, and that's fine.",
+    ug_latin_honors:       "You graduated cum laude. Your diploma is in Latin. You can't read it, but you can feel it.",
+    ug_rush_week:          "You survived rush week. The handshake has five parts. You'll still be doing it in your sleep at forty.",
+    ug_impeached:          "Impeached from student government over the parking committee. You're the first in school history. It's on your CV, technically.",
+    ug_litmag_rejection:   "Rejected by your own literary magazine. Unanimously. You were one of the votes. Integrity has a price.",
+    ug_robotics_loss:      "You lost the robotics competition to a high school team. Their robot was named Gerald. Gerald was better.",
+    ug_opening_night:      "Opening night. The set fell over in act two. You kept going. The campus paper called it \"bold choices.\"",
+
+    // ── Career recognitions
+    pulitzer_prize:          "A Pulitzer, for the book. People who haven't read it now cite it in airport bookstores.",
+    nobel_prize:             ["The Nobel. The call comes at 4 a.m. Swedish time. You think it's a prank for the first twenty minutes.", "The Nobel Prize. Physics majors keep congratulating you on the wrong discovery. You accept graciously."],
+    public_intellectual:     "You're a public intellectual now. You have an agent, a podcast, and a lingering suspicion that your peers have stopped reading you.",
+    research_makes_news:     "Your research makes the national news. The headline is technically accurate and spiritually wrong.",
+    department_chair:        ["You're Department Chair. Congratulations on your new unpaid job.", "Department Chair: the budget is a spreadsheet, the faculty are a weather system, and the copier is your enemy now."],
+    editorial_board:         "You've joined an editorial board. Your inbox now contains papers about nothing you've heard of, by people who cite you wrong.",
+    book_contract:           "A book contract. The advance is four figures, if you count the cents. The deadline is a suggestion. The editor knows this.",
+    mentorship_legacy:       "Your former students have students now. They tell your stories. Some of the stories are even true.",
+    tenure_review_committee: "You review tenure cases at other universities now. You judge the way you were judged, but kinder. Usually."
+  };
 
   // The first thing in the news on a new game
   window.OPENING_NEWS = "You start your academic career in high school. Nobody has told you that's what this is.";

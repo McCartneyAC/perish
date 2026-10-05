@@ -26,7 +26,8 @@ const DEFAULT_STATE = {
   // derived from this. Capped at HINDEX_BUCKET_MAX (500) citations per paper.
   papers: {
     tiers:    [],     // shaped to PAPER_TIERS.length × (HINDEX_BUCKET_MAX + 1) by ensurePaperTiers() in main.js
-    lastTier: null    // tier of the most recent paper (dev inspector)
+    lastTier: null,   // tier of the most recent paper (dev inspector)
+    overflow: 0       // citations past the per-paper cap: they count toward the total, not h
   },
 
   // ── Tests ────────────────────────────────────────────────────────────
@@ -78,7 +79,20 @@ const DEFAULT_STATE = {
     grantChance:        0,
     gradMorale:         0,
     gradSpeedMult:      1,
-    reviewSelfCite:     0
+    reviewSelfCite:     0,
+    energyMaxBonus:     0,   // added to the career stamina bar
+    energyCostMult:     1,   // skills and habits make actions cheaper
+    gradDraftMult:      1,   // how many drafts your students write on their own
+    honorBonusMult:     1,   // what each distinction is worth
+    skillXpMult:        1,   // how fast you get better at things
+    readingSpeedMult:   1,   // pages per second on the Reading List
+    buffDurationMult:   1,   // how long the good moods last
+    holdingMult:        1,   // endgame holdings' output
+    propMult:           1,   // what the things on your desk are worth
+    frameworkSlotBonus: 0,   // extra theoretical frameworks
+    homeSpaceBonus:     0,   // room for more furniture
+    routineSlotBonus:   0,   // more things your routine can do
+    routineSpeedMult:   1    // seconds between routine steps (lower is faster)
   },
 
   // ── Affiliations ──────────────────────────────────────────────────────
@@ -107,6 +121,12 @@ const DEFAULT_STATE = {
   // Set once on college admission from SAT/GRE score. Never resets.
   universityPrestige: 0,
   hsPrestige:         0,   // banked in high school; added to SAT prestige at admission
+
+  gameTicks: 0,   // ticks actually played (TICK_MS each); stories and deadlines run on this clock
+  profile:   { name: "", field: "" },   // the name on your CV, and what your field is called
+  counters:  { clicks: 0, burnouts: 0, coffees: 0, tidies: 0, folders: 0 },
+  workingTitles: {},  // landmark id → its title (generated, or yours)
+  alumniNames: [],
 
   money:  0,   // dollars; can go negative if your lab outspends you
   debt:   0,   // student loans; accrue interest, repaid from salary after the PhD
@@ -194,7 +214,9 @@ const DEFAULT_STATE = {
   // Bump this when a change to state needs a migration (see MIGRATIONS in
   // systems.js). Adding a field with a sensible default does NOT need a bump;
   // the deep merge on load fills it in.
-  saveVersion: 3,
+  levelStartDrafts: {},       // totalDraftsEver when each stage began (school stages need their own drafts)
+
+  saveVersion: 4,
   lastSaved:   null
 };
 

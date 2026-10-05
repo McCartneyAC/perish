@@ -1,0 +1,388 @@
+
+/* ══════════════════════════════════════════════════════════════════════
+   THE DESK (desk.js)
+   A walnut desk under the papers, a green leather blotter along the
+   bottom where the work gets done. Papers are wrapped in .paper; the
+   original panel inside keeps its own paper styling as .paper-sheet.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --walnut:        #4b3222;
+  --walnut-dark:   #362318;
+  --walnut-grain:  rgba(20, 10, 4, 0.16);
+  --walnut-sheen:  rgba(255, 220, 170, 0.05);
+  --blotter:       #2e4234;
+  --blotter-edge:  #1f2e24;
+  --gilt:          #b89a5a;
+  --manila:        #d9bb7f;
+  --manila-dark:   #c5a466;
+  --paper:         #fffcf4;
+  --ink:           #2b1f14;
+  --tack:          #b0182f;
+}
+
+body.desk-mode {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background: var(--walnut-dark);
+}
+
+/* Header becomes the back edge of the desk: title on the left, tools on the right */
+body.desk-mode header {
+  flex: none;
+  justify-content: space-between;
+  padding: 10px 22px;
+  background: linear-gradient(to bottom, #2a1b12, var(--walnut-dark));
+  border-bottom: 1px solid #1d130c;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 5;
+}
+body.desk-mode header h1 {
+  font-size: 26px;
+  color: #efe3c6;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+#desk_tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#desk_tools button {
+  transform: none;
+  margin: 0;
+  padding: 5px 10px;
+  font-size: 13px;
+  background: #efe3c6;
+  border: 1px solid #8b7b5a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+#desk_tools button:hover { background: #fff6dd; }
+#desk_tools .desk-zoom { display: inline-flex; gap: 2px; }
+body.classic-mode #desk_tools { justify-content: center; width: 100%; }
+
+/* The viewport scrolls; the sizer gives the scaled desk its size */
+#desk_viewport {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.35) 100%),
+    var(--walnut-dark);
+  scrollbar-color: #6b4a33 var(--walnut-dark);
+}
+#desk_sizer { position: relative; }
+
+/* #dashboard is the desk surface itself */
+body.desk-mode #dashboard.desk-surface {
+  display: block;
+  position: absolute;
+  left: 0; top: 0;
+  width: 3000px;
+  height: 2200px;
+  transform-origin: 0 0;
+  cursor: grab;
+  touch-action: none;
+  background:
+    /* long grain, a few darker figure lines, a soft sheen */
+    repeating-linear-gradient(91deg, transparent 0 38px, var(--walnut-grain) 38px 39px, transparent 39px 83px),
+    repeating-linear-gradient(89.4deg, transparent 0 140px, rgba(20, 10, 4, 0.10) 140px 143px, transparent 143px 260px),
+    linear-gradient(178deg, var(--walnut-sheen), transparent 40%, var(--walnut-sheen) 70%, transparent),
+    var(--walnut);
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.35);
+}
+body.desk-panning #dashboard.desk-surface { cursor: grabbing; }
+body.desk-dragging, body.desk-panning { user-select: none; -webkit-user-select: none; }
+
+/* ── Papers ─────────────────────────────────────────────────────────── */
+.paper {
+  position: absolute;
+  transform-origin: 50% 50%;
+  cursor: default;
+}
+.paper-hidden, .paper-unplaced { display: none !important; }
+body.desk-dragging .paper-lifted { cursor: grabbing; }
+
+body.desk-mode .paper > .paper-sheet {
+  box-sizing: border-box;
+  width: 360px;
+  min-width: 0;
+  max-width: none;
+  transform: none;                 /* the wrapper does the turning */
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+body.desk-mode #panel_other.paper-sheet,
+body.desk-mode #panel_lab.paper-sheet,
+body.desk-mode #panel_inbox.paper-sheet,
+body.desk-mode #panel_holdings.paper-sheet { width: 420px; }
+body.desk-mode #panel_gazette.paper-sheet  { width: 340px; }
+/* The classic layout floats the lab over the stats; on the desk it's just a paper */
+body.desk-mode #panel_lab.paper-sheet {
+  position: static;
+  left: auto; top: auto;
+  transform: none;
+}
+/* Papers on the desk don't get the classic tilt; the wrapper turns them */
+body.desk-mode .panel.paper-sheet { --panel-tilt: 0deg; }
+body.desk-mode .paper > .paper-sheet { max-height: 760px; overflow-y: auto; }
+body.desk-mode #news_card.paper-sheet { max-height: none; overflow: visible; }
+body.desk-mode #news_card.paper-sheet      { width: 440px; }
+body.desk-mode #hud_landmark.paper-sheet   {
+  width: 620px;
+  background: var(--paper);
+  border: 1px solid rgba(90, 70, 40, 0.10);
+  border-radius: 0;
+}
+body.desk-mode .panel.paper-sheet,
+body.desk-mode #hud_landmark.paper-sheet {
+  box-shadow:
+    0 1px 1px rgba(20, 10, 4, 0.35),
+    0 3px 6px rgba(20, 10, 4, 0.20),
+    0 18px 30px -14px rgba(20, 10, 4, 0.65);
+}
+.paper-lifted > .paper-sheet {
+  transform: translateY(-4px) scale(1.012) !important;
+  box-shadow:
+    0 2px 3px rgba(20, 10, 4, 0.30),
+    0 30px 45px -16px rgba(20, 10, 4, 0.75) !important;
+}
+
+/* Pin and fold sit in the top corner, quiet until you reach for them */
+.paper-chrome {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.paper:hover .paper-chrome,
+.paper:focus-within .paper-chrome,
+.paper-pinned .paper-chrome { opacity: 1; }
+.paper-tool {
+  transform: none !important;
+  margin: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 22px;
+  color: #8a7d67;
+  background: rgba(255, 252, 244, 0.9);
+  border: 1px solid rgba(139, 123, 90, 0.5);
+  border-radius: 50%;
+  box-shadow: none;
+}
+.paper-tool::before { display: none; }
+.paper-tool:hover:not(:disabled) { color: var(--ink); background: #fff; }
+.paper-tool:focus-visible, #desk_tools button:focus-visible, .folder button:focus-visible {
+  outline: 2px solid #2d3d63;
+  outline-offset: 2px;
+}
+.paper-pinned .paper-tool[data-tool="pin"] { color: var(--tack); border-color: var(--tack); }
+.paper-tool[data-tool="fold"] i { transition: transform 0.2s ease; }
+.paper-folded .paper-tool[data-tool="fold"] i { transform: rotate(180deg); }
+
+/* A pinned paper gets a tack (the news card already has its own) */
+.paper-pinned:not([data-paper-id="news_card"])::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e0475f, var(--tack) 55%, #5e0b18);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
+  z-index: 3;
+}
+
+/* The dog-eared corner: drag it to turn the page */
+.paper-dogear {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  z-index: 2;
+  cursor: alias;
+  background: linear-gradient(135deg, transparent 50%, #e8dcc0 50%, #d9caa6);
+  box-shadow: -1px -1px 2px rgba(0, 0, 0, 0.12);
+  transition: width 0.12s ease, height 0.12s ease;
+}
+.paper:hover .paper-dogear { width: 26px; height: 26px; }
+.paper-pinned .paper-dogear { display: none; }
+
+/* Folded: just the title shows, with a crease under it */
+.paper-folded > .paper-sheet {
+  max-height: 62px;
+  overflow: hidden;
+}
+.paper-folded::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 56px;
+  height: 7px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.10), rgba(255, 255, 255, 0.5) 45%, rgba(0, 0, 0, 0.18));
+  pointer-events: none;
+}
+.paper-folded .paper-dogear { display: none; }
+
+/* New paper: it drops onto the desk */
+.paper-arrive > .paper-sheet, .folder.paper-arrive { animation: paper-drop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes paper-drop {
+  from { transform: translate(-30px, -60px) rotate(-6deg); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* ── Folders ────────────────────────────────────────────────────────── */
+.folder {
+  position: absolute;
+  width: 190px;
+  min-height: 118px;
+  padding-top: 18px;
+  cursor: grab;
+  transform-origin: 50% 50%;
+  font-family: "Special Elite", "Courier New", monospace;
+  color: #4a3519;
+}
+.folder-tab {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  max-width: 120px;
+  padding: 3px 12px 4px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--manila-dark);
+  border-radius: 6px 6px 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: text;
+}
+.folder-body {
+  min-height: 100px;
+  padding: 12px 12px 10px;
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.04)),
+    var(--manila);
+  border-radius: 0 4px 4px 4px;
+  box-shadow:
+    0 1px 1px rgba(20, 10, 4, 0.35),
+    0 14px 22px -12px rgba(20, 10, 4, 0.7);
+}
+.folder-count { font-size: 13px; }
+.folder-contents { list-style: none; margin: 8px 0 0; padding: 0; }
+.folder-contents li + li { margin-top: 3px; }
+.folder-contents button, .folder-discard {
+  transform: none !important;
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid rgba(90, 70, 40, 0.25);
+}
+.folder-discard {
+  margin-top: 10px;
+  width: auto;
+  background: transparent;
+  border: 1px dashed rgba(74, 53, 25, 0.5);
+  box-shadow: none;
+}
+.folder-target .folder-body {
+  outline: 3px solid rgba(255, 236, 170, 0.8);
+  outline-offset: 2px;
+}
+.folder-open .folder-body { background: linear-gradient(to bottom, #fffcf4 0 6px, transparent 6px), var(--manila); }
+
+/* ── The blotter: footer pinned to the bottom of the desk ───────────── */
+body.desk-mode footer {
+  flex: none;
+  margin: 0;
+  padding: 12px 22px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.12)),
+    var(--blotter);
+  border-top: 3px solid var(--blotter-edge);
+  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(184, 154, 90, 0.35);
+  position: relative;
+  z-index: 5;
+}
+body.desk-mode footer::before {           /* gilt tooling along the edge */
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; top: 5px;
+  border-top: 1px dashed rgba(184, 154, 90, 0.45);
+  pointer-events: none;
+}
+body.desk-mode footer #dev_reset { margin-left: auto; float: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .paper-arrive > .paper-sheet, .folder.paper-arrive { animation: none; }
+  .paper-sheet, .paper-chrome, .paper-dogear { transition: none !important; }
+}
+
+/* A paper turned all the way over shows its back: someone's grocery list */
+.paper-flipped > .paper-sheet { filter: sepia(0.15) brightness(0.97); }
+
+/* ── Props: the things on your desk ─────────────────────────────────── */
+.desk-prop {
+  position: absolute;
+  z-index: 3;
+  width: 62px;
+  height: 62px;
+  margin: 0;
+  padding: 0;
+  font-size: 30px;
+  line-height: 60px;
+  text-align: center;
+  color: #efe3c6;
+  background: none;
+  border: none;
+  box-shadow: none;
+  cursor: grab;
+  transform: rotate(var(--prop-rot, 0deg));
+  filter: drop-shadow(0 6px 4px rgba(10, 5, 2, 0.55));
+  transition: transform 0.2s ease;
+}
+.desk-prop::before { display: none; }
+.desk-prop:hover:not(:disabled) { background: none; transform: rotate(var(--prop-rot, 0deg)) scale(1.12); }
+.desk-prop:focus-visible { outline: 2px dashed #efe3c6; outline-offset: 4px; }
+.desk-prop i { pointer-events: none; }
+.desk-prop[data-prop="adopt_cat"] { font-size: 40px; color: #2b2320; filter: drop-shadow(0 6px 4px rgba(10, 5, 2, 0.6)); }
+.desk-prop[data-prop="houseplant"] { color: #6f9a5a; }
+.desk-prop[data-prop="globe"] { color: #7fa3b8; }
+.desk-prop[data-prop="skull"] { color: #e8e0cc; }
+.desk-prop[data-prop="desk_lamp"] { color: #d9b45a; }
+.desk-prop.prop-lit::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 520px; height: 520px;
+  margin: -260px 0 0 -260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 140, 0.22), rgba(255, 220, 140, 0.08) 40%, transparent 70%);
+  pointer-events: none;
+}
+.desk-prop.prop-spin i { animation: prop-spin 1.2s cubic-bezier(0.2, 0.7, 0.3, 1); }
+@keyframes prop-spin { from { transform: rotate(0); } to { transform: rotate(1080deg); } }
+.desk-prop.prop-flipped i { transform: rotate(180deg); transition: transform 0.6s ease; }
+.desk-prop.prop-poke { animation: prop-poke 0.35s ease; }
+@keyframes prop-poke { 30% { scale: 1.2; } 60% { scale: 0.94; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-prop.prop-spin i, .desk-prop.prop-poke { animation: none; }
+}

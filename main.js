@@ -57,6 +57,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // New games open with a line of story
   seedOpeningNews();
 
+  // Feature modules settle in: advisors, stories, the desk, offline progress
+  rebuildModifiers();
+  runHooks("load", loaded);
+  rebuildModifiers();
+
+  // The developer inspector stays out of the beta unless you ask for it (?dev)
+  if (!/[?&]dev\b/.test(location.search)) {
+    for (const id of ["dev_traits", "dev_reset"]) document.getElementById(id)?.classList.add("dev-only");
+  }
+
+  // Save when the tab goes away, not only every thirty seconds
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && !window.__importing) saveGame(); });
+  window.addEventListener("pagehide", () => { if (!window.__importing) saveGame(); });
+
   // Wire all button event listeners
   wireEvents();
 

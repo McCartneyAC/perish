@@ -1,17 +1,30 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://kit.fontawesome.com/fba8a3fc8c.js" crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lavishly+Yours&family=Special+Elite&family=Raleway:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="modules.css">
+<link rel="stylesheet" href="desk.css">
 <title>Publish Or Literally Perish</title>
 
-<!-- Load order matters: content → state → helpers → systems → render → events → main -->
+<!-- Load order matters: content → state → helpers → feature modules (dialog, quests, advisor,
+     delights, reading, home, endgame, desk) → systems → render → events → main -->
 <script defer src="content.js"></script>
 <script defer src="state.js"></script>
 <script defer src="helpers.js"></script>
+<script defer src="dialog.js"></script>
+<script defer src="quests.js"></script>
+<script defer src="advisor.js"></script>
+<script defer src="delights.js"></script>
+<script defer src="reading.js"></script>
+<script defer src="home.js"></script>
+<script defer src="endgame.js"></script>
+<script defer src="desk.js"></script>
 <script defer src="systems.js"></script>
 <script defer src="render.js"></script>
 <script defer src="events.js"></script>
@@ -28,6 +41,9 @@
     <div id="hud_news"></div>
   </aside>
 </header>
+
+<!-- Active landmark bar — shown only when a landmark is in progress -->
+<div id="hud_landmark" style="display:none; margin: 12px 20px;"></div>
 
 <div id="dashboard">
 
@@ -63,19 +79,7 @@
 
 </div>
 
-<!-- Active landmark bar — shown only when a landmark is in progress -->
-<div id="hud_landmark" style="display:none; margin: 12px 20px;"></div>
 
-<!-- Advisor note modal — shown when advisor note fires during a landmark -->
-<div id="advisor_modal" style="display:none;">
-  <div id="advisor_modal_inner">
-    <div id="advisor_modal_header">
-      <i class="fa-solid fa-user-tie"></i> Your Advisor
-    </div>
-    <div id="advisor_modal_text"></div>
-    <button id="advisor_modal_dismiss">Acknowledged.</button>
-  </div>
-</div>
 
 <footer>
   <div id="energyUI">

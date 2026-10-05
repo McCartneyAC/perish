@@ -1,0 +1,465 @@
+/* ══════════════════════════════════════════════════════════════════════
+   1.0 PAPERS: inbox, advisor, skills, reading list, frameworks, routine,
+   home, gazette, distinctions, holdings, scrapbook, lineage, paperwork;
+   dialogs, serendipity, floaters, buff stamps, toasts, the obituary
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Special Elite for every heading the game draws, always */
+h1, h2, h3, .panel-title, .adv-name, .gz-masthead, .landmark-label, .landmark-title,
+.dlg h3, .memoir-book h2, .memoir-stage h3, .obit-ending, .rd-now, .skill-head strong {
+  font-family: "Special Elite", "Courier New", serif;
+}
+.dev-only { display: none !important; }
+
+.panel-body p { margin: 0.4em 0; }
+.panel h2 { font-size: 1.25em; }
+.panel h2 > i { margin-right: 4px; }
+.panel small { display: block; font-size: 0.78em; color: #6a5a45; }
+
+/* ── Inbox ──────────────────────────────────────────────────────────── */
+.inbox-count {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 6px;
+  margin-left: 4px;
+  font-family: "Raleway", sans-serif;
+  font-size: 0.6em;
+  line-height: 1.6em;
+  text-align: center;
+  vertical-align: middle;
+  color: #fffcf4;
+  background: #8b2a1d;
+  border-radius: 9px;
+}
+#panel_honors .inbox-count, #panel_reading .inbox-count { background: #6b5c30; }
+.inbox-unread h2 { color: #2d3d63; }
+.inbox-empty { font-style: italic; color: #6a5a45; }
+.mail { padding: 10px 0 12px; border-top: 1px solid rgba(90, 70, 40, 0.18); }
+.mail:first-child { border-top: none; padding-top: 2px; }
+.mail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.82em;
+  color: #6a5a45;
+}
+.mail-from { flex: 1; }
+.mail-new .mail-subject::before {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #2d3d63;
+  vertical-align: middle;
+}
+.mail-subject { font-weight: 700; margin: 2px 0 4px; }
+.mail-body { font-size: 0.92em; line-height: 1.45; color: #3a2c1d; user-select: text; }
+.mail-choices { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.mail-choice { text-align: left; margin: 0; }
+.mail-file { font-size: 0.85em; }
+.mail-due {
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border: 1px solid rgba(90, 70, 40, 0.3);
+  border-radius: 3px;
+}
+.mail-due-soon { color: #8b2a1d; border-color: #8b2a1d; font-weight: 700; }
+.mail-advisor { border-left: 3px solid #2d3d63; padding-left: 8px; }
+.mail-student { border-left: 3px solid #4a6b3a; padding-left: 8px; }
+#panel_inbox .panel-body { max-height: 520px; overflow-y: auto; }
+body.desk-mode #panel_inbox .panel-body { max-height: 380px; }
+
+/* ── Advisor ────────────────────────────────────────────────────────── */
+.adv-intro, .adv-assign { font-size: 0.88em; font-style: italic; color: #6a5a45; }
+.adv-cands { display: grid; gap: 8px; }
+.adv-cand {
+  padding: 10px 12px;
+  background: rgba(239, 227, 198, 0.35);
+  border-left: 3px solid #b89a5a;
+}
+.adv-cand .adv-rumor { font-size: 0.9em; margin: 6px 0; }
+.adv-head { display: flex; gap: 10px; align-items: center; }
+.adv-monogram {
+  flex: none;
+  width: 42px; height: 42px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Special Elite", serif;
+  font-size: 18px;
+  color: #fffcf4;
+  background: #4b3222;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px #b89a5a;
+}
+.adv-name { font-size: 1.1em; }
+.adv-rank { font-size: 0.85em; color: #6a5a45; }
+.adv-arch { font-style: italic; color: #2d3d63; }
+.adv-away { font-style: italic; color: #8b2a1d; }
+.adv-rapport { margin: 10px 0 6px; font-size: 0.88em; }
+.adv-rapport em { display: block; margin-top: 3px; }
+.adv-bar {
+  height: 10px;
+  margin-top: 3px;
+  background: #e8dcc2;
+  border: 1px solid #6f6348;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+.adv-fill { height: 100%; background: linear-gradient(to bottom, #8a7a4a, #6b5c30); transition: width 0.4s ease; }
+.adv-traits { list-style: none; padding: 0; margin: 6px 0; font-size: 0.88em; }
+.adv-traits span { color: #6a5a45; }
+.adv-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.adv-actions .adv-act { margin: 0; text-align: left; }
+.adv-switch {
+  margin-top: 10px;
+  font-size: 0.82em;
+  background: transparent;
+  border: 1px dashed rgba(90, 70, 40, 0.45);
+  box-shadow: none;
+}
+
+/* ── Skills ─────────────────────────────────────────────────────────── */
+.skill { margin: 8px 0; }
+.skill-head { display: flex; align-items: baseline; gap: 6px; }
+.skill-lvl {
+  margin-left: auto;
+  font-family: "Special Elite", serif;
+  font-variant-numeric: tabular-nums;
+  padding: 0 7px;
+  border: 1px solid #8b7b5a;
+  border-radius: 3px;
+}
+.skill-title { font-size: 0.85em; font-style: italic; color: #5a4a35; margin: 1px 0 3px; }
+.skill-bar { height: 5px; background: #e8dcc2; border: 1px solid #b5a98f; }
+.skill-fill { height: 100%; background: #6b8c5a; transition: width 0.3s ease; }
+
+/* ── Reading list ───────────────────────────────────────────────────── */
+.rd-current { padding: 8px 10px; margin-bottom: 8px; background: rgba(239, 227, 198, 0.45); border-left: 3px solid #6b5c30; }
+.rd-now { font-size: 0.8em; color: #6a5a45; text-transform: uppercase; letter-spacing: 0.08em; }
+.rd-title { margin: 2px 0 6px; }
+.rd-bar { height: 8px; background: #e8dcc2; border: 1px solid #6f6348; }
+.rd-fill { height: 100%; background: linear-gradient(to bottom, #6b8c5a, #4a6b3a); transition: width 0.3s linear; }
+.rd-meta { font-size: 0.82em; color: #5a4a35; margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.rd-stop { margin-left: auto; font-size: 0.85em; padding: 2px 8px; }
+.rd-idle { font-style: italic; color: #6a5a45; font-size: 0.9em; }
+.rd-shelf { margin: 6px 0; }
+.rd-shelf summary { cursor: pointer; font-weight: 600; padding: 3px 0; }
+.rd-count { font-weight: 400; color: #6a5a45; font-size: 0.85em; }
+.rd-note { font-size: 0.82em; font-style: italic; color: #6a5a45; }
+.rd-shelf ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.rd-book { margin: 2px 0; font-size: 0.9em; }
+.rd-book button { display: block; width: 100%; margin: 0; text-align: left; font-size: 0.95em; }
+.rd-done { color: #4a6b3a; padding: 3px 9px; }
+#panel_reading .panel-body { max-height: 620px; overflow-y: auto; }
+
+/* ── Frameworks ─────────────────────────────────────────────────────── */
+.fw-slot { padding: 8px 0; border-top: 1px solid rgba(90, 70, 40, 0.15); }
+.fw-slot:first-child { border-top: none; }
+.fw-name { font-weight: 700; }
+.fw-blurb { display: block; font-size: 0.86em; font-style: italic; color: #5a4a35; margin: 2px 0; }
+.fw-pros { display: block; font-size: 0.82em; color: #3f5f31; }
+.fw-cons { display: block; font-size: 0.82em; color: #8b2a1d; }
+.fw-read { font-size: 0.75em; font-weight: 400; color: #4a6b3a; border: 1px solid #4a6b3a; padding: 0 4px; border-radius: 3px; }
+.fw-empty p { font-style: italic; color: #6a5a45; }
+.fw-turns { font-size: 0.82em; color: #6a5a45; }
+.fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 58vh; overflow-y: auto; margin: 8px 0; }
+.fw-pick { margin: 0; text-align: left; padding: 8px 10px; }
+.fw-pick strong { display: block; }
+
+/* ── Routine and home ───────────────────────────────────────────────── */
+.rt-intro, .home-blurb, .home-hint { font-size: 0.86em; font-style: italic; color: #5a4a35; }
+.rt-slot { display: block; margin: 4px 0; font-size: 0.92em; }
+.rt-slot select { font: inherit; padding: 3px 4px; background: #fffcf4; border: 1px solid #8b7b5a; }
+.rt-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; font-size: 0.9em; }
+.rt-res { margin: 0; padding: 2px 8px; }
+.rt-on { background: #4b3222 !important; color: #fffcf4 !important; }
+.rt-ran { color: #6a5a45; font-size: 0.9em; }
+.rt-lapsed { margin: 6px 0; padding: 6px 8px; background: rgba(139, 42, 29, 0.08); border-left: 3px solid #8b2a1d; font-size: 0.9em; }
+.home-space { font-size: 0.88em; margin: 6px 0; }
+.home-owned { display: flex; flex-wrap: wrap; gap: 4px; }
+.home-item { margin: 0; font-size: 0.88em; opacity: 0.75; }
+.home-item.home-on { opacity: 1; border-color: #4a6b3a; }
+.home-item small { display: inline; }
+.home-shop summary { cursor: pointer; font-weight: 600; margin-top: 6px; }
+.home-buy, .home-move { display: block; width: 100%; margin: 3px 0; text-align: left; font-size: 0.9em; }
+
+/* ── The Daily Footnote ─────────────────────────────────────────────── */
+#panel_gazette { background: #f1ead9; }
+#panel_gazette h2 { display: none; }
+.gz-masthead {
+  font-size: 1.7em;
+  text-align: center;
+  letter-spacing: 0.04em;
+  border-bottom: 3px double #2b1f14;
+  padding-bottom: 4px;
+}
+.gz-dateline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #2b1f14;
+  padding: 2px 0;
+  margin-bottom: 8px;
+}
+.gz-headline {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35em;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  margin: 6px 0 2px;
+}
+
+/* ── Distinctions ───────────────────────────────────────────────────── */
+.honors-sum { font-size: 0.86em; }
+.honor-wall { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+.honor {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  color: #c9bd9f;
+  background: #f3ead6;
+  border: 3px double #d6c9a6;
+}
+.honor-got {
+  color: #2b1f14;
+  background: #fffcf4;
+  border-color: #9a7a2a;
+  box-shadow: 0 1px 2px rgba(60, 42, 18, 0.25);
+}
+.honor-hidden { font-family: "Special Elite", serif; color: #b5a98f; }
+
+/* ── Holdings ───────────────────────────────────────────────────────── */
+.deleg-box { padding: 6px 0 10px; border-bottom: 1px solid rgba(90, 70, 40, 0.18); }
+.deleg { display: block; font-size: 0.88em; margin: 4px 0; }
+.deleg select, .deleg-type { font: inherit; font-size: 0.9em; }
+.holdings-rate { font-size: 0.9em; }
+.holdings-rate span, .holdings-rate strong { font-variant-numeric: tabular-nums; }
+.holding { padding: 8px 0; border-top: 1px solid rgba(90, 70, 40, 0.12); }
+.holding-head { display: flex; align-items: baseline; gap: 6px; }
+.holding-n { font-variant-numeric: tabular-nums; color: #6a5a45; }
+.holding-lvl { margin-left: auto; color: #9a7a2a; letter-spacing: 1px; font-size: 0.85em; }
+.holding-blurb { font-size: 0.82em; color: #5a4a35; margin: 2px 0 4px; }
+.holding-btns button { margin: 2px 4px 0 0; font-size: 0.88em; text-align: left; }
+#panel_holdings .panel-body { max-height: 600px; overflow-y: auto; }
+
+/* ── Scrapbook, lineage, paperwork ──────────────────────────────────── */
+.scrap-list { list-style: none; padding: 0; margin: 0 0 8px; font-size: 0.88em; }
+.scrap-list li { margin: 5px 0; }
+.scrap-when {
+  display: inline-block;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6a5a45;
+  margin-right: 4px;
+}
+.lineage-tree { padding-left: 1.2em; font-size: 0.88em; }
+.lineage-tree li { margin: 3px 0; }
+.retire-btn { display: block; width: 100%; margin: 8px 0; font-weight: 700; }
+.legacy-shop { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
+.legacy-shop .legacy-up { margin: 0; text-align: left; font-size: 0.86em; }
+.legacy-owned { color: #4a6b3a !important; }
+.paperwork-version { font-size: 0.85em; color: #6a5a45; }
+.paperwork-btns button { margin: 2px 4px 2px 0; }
+.paperwork-text { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 11px; }
+.paperwork-note { font-size: 0.85em; font-style: italic; }
+
+/* ── CV and landmark extras ─────────────────────────────────────────── */
+.cv-temperament { padding-left: 8px; font-size: 0.9em; }
+.cv-trait-val { font-variant-numeric: tabular-nums; color: #6a5a45; font-size: 0.85em; }
+.cv-note { font-size: 0.82em; font-style: italic; color: #6a5a45; padding-left: 8px; }
+.cv-grade { font-style: italic; color: #5a4a35; }
+.landmark-title { margin: -2px 0 8px; font-size: 1.05em; }
+.landmark-retitle { font-family: "Raleway", sans-serif; font-size: 0.72em; padding: 2px 8px; margin: 0 0 0 6px; }
+.landmark-mood { float: right; font-family: "Raleway", sans-serif; font-size: 0.75em; font-style: italic; color: #5a4a35; }
+
+/* ── Buff stamps under the energy bar ───────────────────────────────── */
+#buff_stamps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-width: 320px; }
+#buff_stamps:empty { display: none; }
+.stamp {
+  font-family: "Special Elite", serif;
+  font-size: 11px;
+  padding: 1px 6px;
+  color: #2a4a2a;
+  border: 1.5px solid #4a6b3a;
+  border-radius: 3px;
+  background: rgba(255, 252, 244, 0.85);
+  transform: rotate(-1.5deg);
+  text-transform: uppercase;
+}
+.stamp b { font-variant-numeric: tabular-nums; text-transform: none; font-family: "Raleway", sans-serif; }
+.stamp-bad { color: #7a2e22; border-color: #7a2e22; transform: rotate(1.5deg); }
+
+/* ── Serendipity: something on the desk, for a moment ───────────────── */
+.serendipity {
+  position: fixed;
+  z-index: 60;
+  width: 48px; height: 48px;
+  padding: 0;
+  margin: 0;
+  font-size: 20px;
+  line-height: 44px;
+  text-align: center;
+  color: #6b4a10;
+  background: radial-gradient(circle at 35% 30%, #fff8dc, #f2d98a 60%, #d9b45a);
+  border: 2px solid #b8902a;
+  border-radius: 50%;
+  box-shadow: 0 0 0 6px rgba(255, 220, 120, 0.25), 0 6px 14px rgba(0, 0, 0, 0.35);
+  animation: serendipity-bob 2.4s ease-in-out infinite, serendipity-in 0.4s ease-out;
+  transform: none !important;
+}
+.serendipity::before { display: none; }
+.serendipity:hover:not(:disabled) { background: radial-gradient(circle at 35% 30%, #fff, #f6e2a0 60%, #e0c070); }
+.serendipity-dark {
+  color: #e8dcc2;
+  background: radial-gradient(circle at 35% 30%, #6a5a6a, #3a2a3a 60%, #1e141e);
+  border-color: #5a3a5a;
+  box-shadow: 0 0 0 6px rgba(90, 40, 90, 0.25), 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+.serendipity-dark:hover:not(:disabled) { background: radial-gradient(circle at 35% 30%, #7a6a7a, #4a3a4a 60%, #2e242e); }
+@keyframes serendipity-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -6px; } }
+@keyframes serendipity-in  { from { scale: 0.3; opacity: 0; } to { scale: 1; opacity: 1; } }
+
+/* ── Floaters: numbers off the button ───────────────────────────────── */
+.floater {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: "Special Elite", "Courier New", monospace;
+  font-size: 15px;
+  color: #2b1f14;
+  text-shadow: 0 1px 0 #fffcf4, 0 0 6px rgba(255, 252, 244, 0.9);
+  transform: translate(-50%, 0);
+  animation: floater-up 1.2s ease-out forwards;
+}
+.floater-big { font-size: 19px; font-weight: 700; color: #6b4a10; }
+body.desk-mode .floater { color: #fff6dd; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+@keyframes floater-up {
+  from { opacity: 1; translate: 0 0; }
+  to   { opacity: 0; translate: 0 -54px; }
+}
+
+/* ── Distinction toast: a framed certificate slides in ──────────────── */
+.honor-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 120px;
+  z-index: 80;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  max-width: 320px;
+  padding: 12px 16px;
+  background: #fffcf4;
+  border: 4px double #9a7a2a;
+  box-shadow: 0 10px 24px rgba(20, 10, 4, 0.45);
+  animation: toast-in 0.35s ease-out;
+}
+.honor-toast + .honor-toast { bottom: 210px; }
+.honor-toast i { font-size: 24px; color: #9a7a2a; }
+.honor-toast strong { display: block; font-family: "Special Elite", serif; }
+.honor-toast span { font-size: 0.85em; color: #5a4a35; }
+.honor-toast-out { opacity: 0; transition: opacity 0.5s ease; }
+@keyframes toast-in { from { translate: 30px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+
+/* ── Dialogs: an index card over the desk ───────────────────────────── */
+.dlg-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(20, 12, 6, 0.55);
+}
+.dlg {
+  width: min(460px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 22px 16px;
+  background: #fffefa;
+  color: #2b1f14;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  transform: rotate(-0.6deg);
+  background-image: linear-gradient(to bottom, transparent 46px, #e58b8c 46px, #e58b8c 48px, transparent 48px);
+}
+.dlg-wide { width: min(780px, 100%); }
+.dlg h3 { margin: 0 0 14px; font-size: 1.3em; color: #2d3d63; }
+.dlg-body { font-size: 0.95em; line-height: 1.5; }
+.dlg-input { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border: 1px solid #8b7b5a; background: #fff; }
+.dlg-note { min-height: 1em; font-size: 0.85em; color: #8b2a1d; margin: 6px 0 0; }
+.dlg-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+.dlg-danger { background: linear-gradient(to bottom, #e9b5a8, #d58f7e) !important; border-color: #8b2a1d !important; }
+
+/* ── Overlays: the obituary and the memoir ──────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px;
+  background: rgba(20, 12, 6, 0.72);
+  overflow-y: auto;
+}
+.obit-clipping, .memoir-book {
+  max-width: 580px;
+  padding: 26px 30px 22px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.55;
+  color: #1e1810;
+  background: linear-gradient(rgba(255, 255, 255, 0.25), rgba(0, 0, 0, 0.03)), #efe8d6;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+.obit-clipping {
+  transform: rotate(-0.8deg);
+  clip-path: polygon(0 1%, 3% 0, 20% 1%, 40% 0, 60% 1%, 80% 0, 97% 1%, 100% 0, 100% 99%, 96% 100%, 75% 99%, 50% 100%, 25% 99%, 4% 100%, 0 99%);
+}
+.obit-outlet { font-family: "Special Elite", serif; font-size: 13px; text-align: center; border-bottom: 1px solid #1e1810; padding-bottom: 6px; text-transform: uppercase; letter-spacing: 0.1em; }
+.obit-headline { font-family: Georgia, serif; font-size: 26px; line-height: 1.15; margin: 12px 0; }
+.obit-epitaph { text-align: center; font-style: italic; margin-top: 16px; }
+.obit-ending { margin-top: 14px; text-align: center; font-size: 1.1em; }
+.obit-legacy { text-align: center; font-style: italic; }
+.obit-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.memoir-book { max-width: 640px; }
+.memoir-book h2 { text-align: center; margin-top: 0; }
+.memoir-stage h3 { border-bottom: 1px solid rgba(30, 24, 16, 0.3); padding-bottom: 3px; margin: 18px 0 6px; }
+.memoir-stage p { margin: 4px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .serendipity { animation: none; }
+  .floater { animation-duration: 0.01s; }
+  .honor-toast { animation: none; }
+}
+
+/* ── Phones and narrow windows (the classic, stacked layout) ────────── */
+@media (max-width: 759px) {
+  header h1 { font-size: 30px; text-align: center; }
+  body.classic-mode footer, body:not(.desk-mode) footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin: 0;
+    padding: 10px 12px;
+    background: rgba(239, 227, 193, 0.96);
+    border-top: 1px solid #9a8f73;
+    box-shadow: 0 -4px 10px rgba(60, 42, 18, 0.18);
+  }
+  #energyUI { width: auto; }
+  #barOuter { width: min(260px, 70vw); }
+  .honor-toast { left: 12px; right: 12px; bottom: 150px; max-width: none; }
+  .honor-toast + .honor-toast { bottom: 230px; }
+  .adv-actions, .legacy-shop { grid-template-columns: 1fr; }
+  .dlg { padding: 14px 16px; }
+  #hud_landmark { margin: 10px 12px !important; }
+  .landmark-mood { float: none; display: block; margin-top: 2px; }
+  .landmark-sources { flex-wrap: wrap; gap: 4px 10px; }
+}

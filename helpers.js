@@ -20,6 +20,36 @@ function approxNormal(mean, sd) {
   return mean + (s / 6) * sd;
 }
 
+// =====================================================================
+// HOOKS — how the feature modules (quests, advisor, delights, desk,
+// reading, home, endgame) plug in without the core naming them.
+//   onHook(name, fn)          register
+//   runHooks(name, ...args)   call every fn; a broken hook never breaks the game
+//   foldHooks(name, v, ...)   each fn gets the value and returns a new one
+// Events the core fires: tick, second, modifiers(m), action(id, payload, before),
+// perk(id), affiliation(id, slot), enterLevel(i), burnout, published(n, tiers),
+// landmarkPhase(def, phase), landmarkArtifact(def, artifact),
+// landmarkComplete(def, artifact), gradDefended(g), gradHired(g), gradQuit(g),
+// load(loaded), render, reset.
+// =====================================================================
+const HOOKS = {};
+function onHook(name, fn) { (HOOKS[name] = HOOKS[name] || []).push(fn); }
+function runHooks(name, ...args) {
+  const fns = HOOKS[name];
+  if (!fns) return;
+  for (const fn of fns) {
+    try { fn(...args); } catch (e) { console.warn(`hook ${name} failed:`, e?.stack ?? e); }
+  }
+}
+function foldHooks(name, value, ...args) {
+  const fns = HOOKS[name];
+  if (!fns) return value;
+  for (const fn of fns) {
+    try { const v = fn(value, ...args); if (v !== undefined) value = v; } catch (e) { console.warn(`hook ${name} failed:`, e?.stack ?? e); }
+  }
+  return value;
+}
+
 // Trait normalization helpers
 function trait01(x)       { return clamp(x, 0, 100) / 100; }
 function traitCentered(x) { return (clamp(x, 0, 100) - 50) / 50; }  // → -1..+1
@@ -29,6 +59,8 @@ function traitCentered(x) { return (clamp(x, 0, 100) - 50) / 50; }  // → -1..+
 // =====================================================================
 
 function inCooldown() {
+  const until = state.cooldownUntil ?? 0;
+  if (until - Date.now() > BASE_COOLDOWN_MS * 4) state.cooldownUntil = 0;   // a clock that jumped
   return Date.now() < (state.cooldownUntil ?? 0);
 }
 
@@ -37,17 +69,44 @@ function effectiveCooldownMs() {
   return Math.floor(BASE_COOLDOWN_MS * clamp(state.modifiers?.burnoutMult ?? 1, lo, hi));
 }
 
+// Career stamina: the bar itself grows as you do. High school gets 100;
+// an emeritus gets 300. Regeneration scales with the bar, so a full refill
+// always takes about the same time, and lab gear, habits and furniture
+// (energyMaxBonus) add on top.
+function careerStamina(level = state.levelIndex) {
+  return window.ENERGY_MAX_BY_LEVEL?.[level] ?? ENERGY_MAX;
+}
+function maxEnergy() {
+  return Math.max(20, careerStamina() + (state.modifiers?.energyMaxBonus ?? 0));
+}
+function energyRegenPerTick() {
+  return ENERGY_REGEN_PER_TICK * (careerStamina() / ENERGY_MAX) * (state.modifiers?.energyRegenMult ?? 1);
+}
+
+// What an action actually costs in energy, after skills and habits
+function effectiveEnergyCost(actionId, base) {
+  if (!(base > 0)) return 0;
+  const mult = foldHooks("energyCost", state.modifiers?.energyCostMult ?? 1, actionId);
+  if (mult <= 0) return 0;                       // flow state: free
+  return Math.max(1, Math.round(base * mult));
+}
+
+function startBurnout() {
+  state.cooldownUntil = Date.now() + effectiveCooldownMs();
+  state.counters = state.counters || {};
+  state.counters.burnouts = (state.counters.burnouts ?? 0) + 1;
+  runHooks("burnout");
+}
+
 // Returns true if energy was spent; triggers burnout if energy hits 0
 function spendEnergy(cost) {
   if (inCooldown()) return false;
   if (state.energy <= 0) {
-    state.cooldownUntil = Date.now() + effectiveCooldownMs();
+    startBurnout();
     return false;
   }
   state.energy = Math.max(0, state.energy - cost);
-  if (state.energy === 0) {
-    state.cooldownUntil = Date.now() + effectiveCooldownMs();
-  }
+  if (state.energy === 0) startBurnout();
   return true;
 }
 // =====================================================================
@@ -105,6 +164,19 @@ function rebuildModifiers() {
   m.gradMorale         = 0;
   m.gradSpeedMult      = 1;
   m.reviewSelfCite     = 0;
+  m.energyMaxBonus     = 0;
+  m.energyCostMult     = 1;
+  m.gradDraftMult      = 1;
+  m.honorBonusMult     = 1;
+  m.skillXpMult        = 1;
+  m.readingSpeedMult   = 1;
+  m.buffDurationMult   = 1;
+  m.holdingMult        = 1;
+  m.propMult           = 1;
+  m.frameworkSlotBonus = 0;
+  m.homeSpaceBonus     = 0;
+  m.routineSlotBonus   = 0;
+  m.routineSpeedMult   = 1;
   m.pubTypeMult        = { conference: 1, journal: 1, chapter: 1, monograph: 1 };
 
   applyTraitEffects(m);
@@ -141,6 +213,12 @@ function rebuildModifiers() {
 
   // Former students cite you for the rest of their careers
   m.citationMult *= 1 + Math.min(ALUMNI_CITE_MAX, ALUMNI_CITE_EACH * (state.alumni ?? 0));
+
+  // Advisors, buffs, distinctions, frameworks, furniture, the story, Legacy
+  runHooks("modifiers", m);
+
+  m.energyRegenMult = Math.max(0.15, m.energyRegenMult);
+  m.energyCostMult  = clamp(m.energyCostMult, 0.25, 3);
 }
 
 // Where each trait sits on −1..+1. IQ maps 70..130; everything else 0..100.
@@ -187,7 +265,9 @@ function applyAffiliationModifiers(affiliation) {
 
   if (fx.modifiers) {
     for (const [key, val] of Object.entries(fx.modifiers)) {
-      if (m[key] !== undefined) m[key] *= val;
+      if (typeof m[key] !== "number") continue;
+      if (key.endsWith("Mult")) m[key] *= val;   // multipliers multiply
+      else                      m[key] += val;   // bonuses (energyMaxBonus, paperQualityBonus…) add
     }
   }
 
@@ -275,8 +355,20 @@ function joinAffiliation(registry, id) {
   if (slot === "hs_club" || slot === "college_club")            state.cv.club  = affiliation.label;
   if (slot === "hs_sport")                                         state.cv.sport = affiliation.label;
 
+  newsFor(id);
   rebuildModifiers();
+  runHooks("affiliation", id, slot);
   return true;
+}
+
+// The news line for a club, major, perk or milestone (NEWS_ITEMS in content.js).
+// A list picks one at random; a function is called with the state.
+function newsFor(id) {
+  let item = window.NEWS_ITEMS?.[id];
+  if (typeof item === "function") item = item(state);
+  if (Array.isArray(item)) item = pickOne(item);
+  if (item) pushNews(item);
+  return item ?? null;
 }
 
 // =====================================================================
@@ -325,6 +417,8 @@ function unlockPerk(perkId) {
   // Lasting modifiers (effects.modifiers) take effect now
   rebuildModifiers();
   if (perk.onJoin) perk.onJoin(state);
+  newsFor(perkId);
+  runHooks("perk", perkId);
   return true;
 }
 
@@ -490,6 +584,21 @@ function calcPrestigeFromGRE(totalScore) {
 // LEVEL PROGRESSION
 // =====================================================================
 
+// Through the PhD, drafts are also the calendar (and tuition is billed by
+// them), so a stage's drafts have to be written during that stage: leftovers
+// from high school don't make college last eleven seconds.
+function draftsRequired(nextIndex) {
+  const req = window.LEVELS?.[nextIndex]?.req;
+  if (!req) return Infinity;
+  let d = req.d;
+  if (nextIndex <= 4) {
+    const start = state.levelStartDrafts?.[nextIndex - 1];
+    const gap = req.d - (window.LEVELS?.[nextIndex - 1]?.req?.d ?? 0);
+    if (start != null && gap > 0) d = Math.max(d, start + gap);
+  }
+  return d;
+}
+
 function canLevelUp(nextIndex) {
   const next = window.LEVELS?.[nextIndex];
   if (!next) return false;
@@ -507,7 +616,7 @@ function canLevelUp(nextIndex) {
   // Check resource requirements
   return (
     state.knowledge         >= req.k &&
-    state.totalDraftsEver   >= req.d &&
+    state.totalDraftsEver   >= draftsRequired(nextIndex) &&
     state.publications      >= req.p &&
     calcTotalCitations()    >= req.c &&
     calcHIndex()            >= req.h &&
@@ -520,6 +629,7 @@ function tryLevelUp() {
   while (canLevelUp(state.levelIndex + 1)) {
     state.levelIndex += 1;
     onEnterLevel(state.levelIndex);
+    runHooks("enterLevel", state.levelIndex);
   }
   if (state.levelIndex !== before) {
     // New chapter of life: milestone events start their cycle over
@@ -555,23 +665,29 @@ function aggregateBuckets() {
   return out;
 }
 
-function calcHIndex() {
+// h, citations and paper count are read many times a tick (render, honors,
+// gates), so they're computed once and cached until the papers change.
+// Anything that edits state.papers.tiers calls invalidatePaperStats().
+let PAPER_STATS = null;
+function invalidatePaperStats() { PAPER_STATS = null; }
+function paperStats() {
+  const papers = state.papers;
+  if (PAPER_STATS && PAPER_STATS.owner === papers && PAPER_STATS.overflow === (papers?.overflow ?? 0)) return PAPER_STATS;
   const buckets = aggregateBuckets();
-  let cumulative = 0;                     // papers with ≥ i citations
-  for (let i = buckets.length - 1; i >= 1; i--) {
+  let h = 0, cumulative = 0, cites = 0, count = 0;
+  for (let i = buckets.length - 1; i >= 0; i--) {
     cumulative += buckets[i];
-    if (cumulative >= i) return i;
+    if (!h && i >= 1 && cumulative >= i) h = i;
+    cites += buckets[i] * i;
+    count += buckets[i];
   }
-  return 0;
+  PAPER_STATS = { owner: papers, overflow: papers?.overflow ?? 0, h, cites: cites + (papers?.overflow ?? 0), count };
+  return PAPER_STATS;
 }
 
-function calcTotalCitations() {
-  return aggregateBuckets().reduce((sum, count, c) => sum + count * c, 0);
-}
-
-function calcTotalPapers() {
-  return aggregateBuckets().reduce((a, b) => a + b, 0);
-}
+function calcHIndex()         { return paperStats().h; }
+function calcTotalCitations() { return paperStats().cites; }
+function calcTotalPapers()    { return paperStats().count; }
 
 // Papers per quality tier, lowest first — e.g. [12, 7, 3, 1, 0].
 // For tenure / job-market checks that care about quality, not just h.
@@ -606,6 +722,8 @@ function ensurePaperTiers() {
     });
   }
   state.papers.tiers = tiers;
+  state.papers.overflow = Number(state.papers.overflow) || 0;
+  invalidatePaperStats();
   state.publications = calcTotalPapers();
 }
 
@@ -615,8 +733,87 @@ function addPaper(tier = 1) {
   if (!Array.isArray(state.papers?.tiers?.[t])) ensurePaperTiers();
   state.papers.tiers[t][0] += 1;
   state.papers.lastTier = t;
+  invalidatePaperStats();
   state.publications    = calcTotalPapers();
   return t;
+}
+
+// Many papers at once, for delegation and holdings: split n across tiers by
+// this type's odds (expected counts, remainders rolled), no per-paper loop.
+function addPapersBulk(n, type = "journal") {
+  n = Math.floor(n);
+  if (n <= 0) return [];
+  if (n <= 8) { const out = []; for (let i = 0; i < n; i++) out.push(addPaper(rollPaperTier(type))); return out; }
+  const w = paperTierWeights(type, computePaperQuality());
+  const total = w.reduce((a, b) => a + b, 0);
+  const counts = w.map(x => Math.floor(n * x / total));
+  let left = n - counts.reduce((a, b) => a + b, 0);
+  while (left-- > 0) counts[weightedIndex(w)] += 1;
+  if (!Array.isArray(state.papers?.tiers?.[0])) ensurePaperTiers();
+  counts.forEach((k, t) => { if (k) state.papers.tiers[t][0] += k; });
+  state.papers.lastTier = counts.reduce((best, k, t) => k ? t : best, 0);
+  invalidatePaperStats();
+  state.publications = calcTotalPapers();
+  return counts;
+}
+
+// n citations spread over everything you've published, in proportion to how
+// readable each tier is. Papers that would pass the per-paper cap keep the
+// excess in papers.overflow: it counts toward total citations, not h.
+function addCitations(n) {
+  n = Math.floor(n);
+  if (n <= 0) return 0;
+  const tiers = state.papers?.tiers;
+  if (!Array.isArray(tiers)) return 0;
+  const max = HINDEX_BUCKET_MAX;
+  let W = 0;
+  tiers.forEach((hist, t) => { const r = window.PAPER_TIERS?.[t]?.rate ?? 1; for (const k of hist) W += k * r; });
+  if (W <= 0) return 0;
+  let overflow = 0, given = 0;
+  tiers.forEach((hist, t) => {
+    const r = window.PAPER_TIERS?.[t]?.rate ?? 1;
+    const out = new Array(hist.length).fill(0);
+    for (let c = 0; c < hist.length; c++) {
+      const cnt = hist[c];
+      if (!cnt) continue;
+      const share = n * cnt * r / W;
+      const each  = Math.floor(share / cnt);
+      let extra   = Math.floor(share - each * cnt);
+      if (Math.random() < (share - each * cnt) - extra) extra += 1;
+      extra = clamp(extra, 0, cnt);
+      for (const [k, step] of [[cnt - extra, each], [extra, each + 1]]) {
+        if (!k) continue;
+        let b = c + step;
+        if (b > max) { overflow += (b - max) * k; b = max; }
+        out[b] += k;
+        given += k * step;
+      }
+    }
+    tiers[t] = out;
+  });
+  state.papers.overflow = (state.papers.overflow ?? 0) + overflow;
+  invalidatePaperStats();
+  return given;
+}
+
+// Papers that come out of a story (positive n) or get retracted (negative n).
+// A retraction takes your most-cited paper, because that's the one people check.
+function addStoryPapers(n, tier = "low") {
+  n = Math.round(n);
+  if (n > 0) {
+    const pick = { low: () => weightedIndex([60, 35, 5, 0, 0]), mid: () => weightedIndex([10, 40, 35, 13, 2]), high: () => weightedIndex([0, 10, 35, 40, 15]) }[tier] ?? (() => 1);
+    for (let i = 0; i < n; i++) addPaper(pick());
+  } else if (n < 0) {
+    for (let i = 0; i < -n; i++) {
+      let best = null;
+      state.papers.tiers.forEach((hist, t) => { for (let c = hist.length - 1; c >= 0; c--) if (hist[c] > 0) { if (!best || c > best[1]) best = [t, c]; break; } });
+      if (!best) break;
+      state.papers.tiers[best[0]][best[1]] -= 1;
+    }
+    invalidatePaperStats();
+    state.publications = calcTotalPapers();
+  }
+  return state.publications;
 }
 
 // Relative odds of each tier for a paper of this type and quality (0–100).
@@ -662,6 +859,7 @@ function tickCitations() {
       if (moving) {
         hist[c]     -= moving;
         hist[c + 1] += moving;
+        PAPER_STATS = null;
       }
     }
   }
@@ -735,6 +933,8 @@ function startLandmark(landmarkId) {
   state.activeLandmark         = landmarkId;
   state.landmarkProgress       = 0;
   state.landmarkLastProgressAt = Date.now();
+  runHooks("landmarkStart", def);
+  if (def.phases?.[0]) runHooks("landmarkPhase", def, def.phases[0]);
   return true;
 }
 
@@ -766,7 +966,10 @@ function currentLandmarkPhase(def, progress = state.landmarkProgress) {
 // Multiplier on landmark progress from state modifiers the landmark opts into.
 // Only knowledgeMult is live; the other flags in def.modifiers are placeholders.
 function landmarkProgressMult(def) {
-  return def?.modifiers?.knowledgeMult ? (state.modifiers?.knowledgeMult ?? 1) : 1;
+  // Knowledge helps, gently: doubling what you know speeds a thesis by 15%
+  const km = Math.max(1, state.modifiers?.knowledgeMult ?? 1);
+  const base = def?.modifiers?.knowledgeMult ? 1 + 0.15 * Math.log2(km) : 1;
+  return foldHooks("landmarkMult", base, def);
 }
 
 // Called from doAction after a successful action. The landmark bar fills from
@@ -779,18 +982,34 @@ function advanceLandmark(actionId) {
   let gain = def.progressSources?.[actionId] ?? 0;
   if (gain <= 0) return false;
   if (actionId === "write") gain *= window.LEVELS?.[state.levelIndex]?.draftsPerWrite ?? 1;
+  if (doAction.fromRoutine) gain *= 0.5;      // you can't automate a tenure case (entirely)
+  return addLandmarkProgress(gain * landmarkProgressMult(def));
+}
 
-  state.landmarkProgress = Math.min(
-    def.totalProgress,
-    state.landmarkProgress + gain * landmarkProgressMult(def)
-  );
-  state.landmarkLastProgressAt = Date.now();
-
-  if (state.landmarkProgress >= def.totalProgress) {
-    completeLandmark();
-    return true;
+// Moves the bar, announces new phases, and finishes the landmark when it's
+// full — unless something still has to happen first (a defense on the
+// calendar: see landmarkHeld, which quests.js answers through a hook).
+function addLandmarkProgress(amount) {
+  const def = activeLandmarkDef();
+  if (!def || !amount) return false;
+  const before = currentLandmarkPhase(def).index;
+  state.landmarkProgress = clamp(state.landmarkProgress + amount, 0, def.totalProgress);
+  if (amount > 0) state.landmarkLastProgressAt = Date.now();
+  const now = currentLandmarkPhase(def);
+  if (now.index > before && amount > 0) {
+    for (let i = before + 1; i <= now.index; i++) runHooks("landmarkPhase", def, def.phases[i]);
   }
-  return false;
+  return maybeCompleteLandmark();
+}
+
+function landmarkHeld(def) { return foldHooks("landmarkHeld", false, def); }
+
+function maybeCompleteLandmark() {
+  const def = activeLandmarkDef();
+  if (!def || state.landmarkProgress < def.totalProgress) return false;
+  if (landmarkHeld(def)) return false;
+  completeLandmark();
+  return true;
 }
 
 function completeLandmark() {
@@ -805,20 +1024,24 @@ function completeLandmark() {
     tenure_review:     "tenureGranted",
     habilitation_opus: "habilitationCompleted"
   };
-  const flagKey = flagMap[def.id];
+  const flagKey = def.setsFlag ?? flagMap[def.id];
   if (flagKey) state.flags[flagKey] = true;
 
   const artifact = {
-    type:  def.id,
-    year:  state.levelIndex,
-    title: gen_landmark_title(def.id)
+    type:    def.id,
+    year:    state.levelIndex,
+    title:   state.workingTitles?.[def.id] ?? gen_landmark_title(def.id),
+    advisor: state.advisor?.name ?? null,
+    place:   state.cv?.universityName ?? null
   };
+  runHooks("landmarkArtifact", def, artifact);     // grades, committee, press
   state.cv.landmarks.push(artifact);
 
   state.landmarksCompleted += 1;
   state.activeLandmark      = null;
   state.landmarkProgress    = 0;
   state.advisorNoteActive   = false;
+  runHooks("landmarkComplete", def, artifact);
 
   tryLevelUp();
   rebuildModifiers();
@@ -832,6 +1055,7 @@ function tickLandmarkDecay() {
   const def = activeLandmarkDef();
   if (!def)         return;
   if (inCooldown()) return;
+  if (state.landmarkProgress >= def.totalProgress) return;   // finished, waiting on its defense
 
   const grace = window.LANDMARK_DECAY_GRACE_MS ?? 0;
   if (Date.now() - (state.landmarkLastProgressAt ?? 0) < grace) return;
@@ -845,6 +1069,7 @@ function tickLandmarkDecay() {
 function landmarkSlipping() {
   const def = activeLandmarkDef();
   if (!def || inCooldown()) return false;
+  if (state.landmarkProgress >= def.totalProgress) return false;
   if (Date.now() - (state.landmarkLastProgressAt ?? 0) < (window.LANDMARK_DECAY_GRACE_MS ?? 0)) return false;
   return state.landmarkProgress > currentLandmarkPhase(def).start;
 }
@@ -981,7 +1206,9 @@ function doAction(actionId, payload) {
 
   // Extract energy cost and route through spendEnergy()
   const energyDelta = costsArr.find(d => d.path === "energy");
-  const energyCost  = energyDelta ? Math.abs(energyDelta.value) : 0;
+  const energyCost  = effectiveEnergyCost(actionId, energyDelta ? Math.abs(energyDelta.value) : 0);
+  const before = { knowledge: state.knowledge, drafts: state.drafts, publications: state.publications,
+                   money: state.money ?? 0, energy: state.energy, funds: state.lab?.funds ?? 0 };
   if (energyCost > 0) {
     if (!spendEnergy(energyCost)) return false;
     // Apply only the non-energy costs
@@ -1001,10 +1228,16 @@ function doAction(actionId, payload) {
   if (typeof action.apply === "function") action.apply(state, payload);
   if (action.cooldownMs) state.timers.readyAt[actionId] = Date.now() + action.cooldownMs;
 
+  if (["study_textbooks", "study_papers", "write"].includes(actionId)) {
+    state.counters = state.counters || {};
+    state.counters.clicks = (state.counters.clicks ?? 0) + 1;
+  }
+  runHooks("action", actionId, payload, before);
+
   advanceLandmark(actionId);
   tryLevelUp();
   rebuildModifiers();
-  render();
+  if (!doAction.quiet) render();
   return true;
 }
 
@@ -1103,7 +1336,10 @@ function paperReadingGain() {
 }
 
 function actionCooldownLeft(actionId) {
-  return Math.max(0, (state.timers?.readyAt?.[actionId] ?? 0) - Date.now());
+  const left = Math.max(0, (state.timers?.readyAt?.[actionId] ?? 0) - Date.now());
+  // A clock that jumped (or a save from another machine) never strands a button
+  const max = window.ACTIONS?.[actionId]?.cooldownMs;
+  return max != null ? Math.min(left, max) : left;
 }
 
 // Every draft, whoever wrote it, goes through here: milestone counter + tuition
@@ -1116,6 +1352,8 @@ function onDraftsGained(n) {
 
 // Arriving at a new level (called once per level passed)
 function onEnterLevel(index) {
+  state.levelStartDrafts = state.levelStartDrafts ?? {};
+  state.levelStartDrafts[index] = state.totalDraftsEver ?? 0;
   // Every stage through the tenure track is a new institution
   if (index >= 1 && index <= TENURE_TRACK_LEVEL) {
     moveInstitution(index);
@@ -1182,7 +1420,8 @@ function moveInstitution(index) {
     const base  = move.from === "phd" ? (state.phdPrestige ?? state.universityPrestige) : state.universityPrestige;
     const [lo, hi] = move.range;
     const bonus = move.hBonus ? clamp(calcHIndex() - 7, 0, 10) : 0;
-    state.universityPrestige = clamp(Math.round(base + lo + Math.random() * (hi - lo) + bonus), 0, 100);
+    const letters = foldHooks("moveBonus", 0, index);     // your advisor's letter, mostly
+    state.universityPrestige = clamp(Math.round(base + lo + Math.random() * (hi - lo) + bonus + letters), 0, 100);
   }
   if (index === 3) state.phdPrestige = state.universityPrestige;
   return assignUniversity();
@@ -1306,6 +1545,7 @@ function citeRandomPaper() {
   const [t, c] = slots[weightedIndex(slots.map(x => x[2]))];
   state.papers.tiers[t][c]     -= 1;
   state.papers.tiers[t][c + 1] += 1;
+  invalidatePaperStats();
   return true;
 }
 
@@ -1331,10 +1571,12 @@ function recruitGradStudent() {
     quirk:    pickOne(GRAD_QUIRKS),
     ageTicks: 0,
     progress: 0,
+    draftAcc: 0,
     morale:   gradBaselineMorale()
   };
   state.gradStudents.push(g);
   pushNews(`New in your lab: ${g.name}, who ${g.quirk}.`);
+  runHooks("gradHired", g);
   return g;
 }
 
@@ -1358,24 +1600,76 @@ function tickGradStudents() {
     if (unpaid) g.morale -= 0.004;                      // missed paychecks hurt fast
     g.morale    = clamp(g.morale, 0, 1);
 
-    g.progress += (0.5 + g.morale) * (state.modifiers?.gradSpeedMult ?? 1) / (GRAD_PAPER_YEARS * perYear);
+    const speed = (0.5 + g.morale) * (state.modifiers?.gradSpeedMult ?? 1);
+    g.progress += speed / (GRAD_PAPER_YEARS * perYear);
     if (g.progress >= 1) {
       g.progress -= 1;
       addPaper(rollPaperTier("journal"));
-      pushNews(`${g.name}'s paper was accepted. You're senior author, naturally.`);
+      g.papers = (g.papers ?? 0) + 1;
+      pushNews(gradPaperNews(g));
+    }
+
+    // Students write drafts on their own, so the late game isn't all clicking
+    g.draftAcc = (g.draftAcc ?? 0) + GRAD_DRAFTS_PER_YEAR * speed * (state.modifiers?.gradDraftMult ?? 1) / perYear;
+    if (g.draftAcc >= 1) {
+      const n = Math.floor(g.draftAcc);
+      g.draftAcc -= n;
+      state.drafts += n;
+      state.totalDraftsEver += n;
+      state.stats.gradDrafts = (state.stats.gradDrafts ?? 0) + n;
+      onDraftsGained(n);
     }
 
     if (g.morale < GRAD_QUIT_MORALE) {
-      pushNews(`${g.name} left for industry. Their starting salary is higher than yours.`);
+      pushNews(pickOne(GRAD_QUIT_NEWS).replace(/\{name\}/g, g.name));
+      state.stats.gradsQuit = (state.stats.gradsQuit ?? 0) + 1;
+      runHooks("gradQuit", g);
     } else if (g.ageTicks >= GRAD_PROGRAM_YEARS * perYear) {
       state.alumni = (state.alumni ?? 0) + 1;
-      pushNews(`Dr. ${g.name} defended! They'll cite you for the rest of their career.`);
+      state.alumniNames = [...(state.alumniNames ?? []), g.name].slice(-40);
+      pushNews(pickOne(GRAD_DEFEND_NEWS).replace(/\{name\}/g, g.name));
+      runHooks("gradDefended", g);
       rebuildModifiers();
     } else {
       staying.push(g);
     }
   }
   state.gradStudents = staying;
+}
+
+function gradPaperNews(g) {
+  return pickOne(GRAD_PAPER_NEWS).replace(/\{name\}/g, g.name);
+}
+
+// For the story and advisor modules: who's in the lab, and how they feel
+function labStudentCount()    { return state.gradStudents?.length ?? 0; }
+function labAlumniCount()     { return state.alumni ?? 0; }
+function pickLabStudentName() { return state.gradStudents?.length ? pickOne(state.gradStudents).name : null; }
+// Story deltas are on a 0–100 scale; morale is 0–1
+function adjustAllMorale(delta) {
+  for (const g of state.gradStudents ?? []) g.morale = clamp(g.morale + delta / 100, 0, 1);
+}
+function adjustStudentMorale(name, delta) {
+  const g = (state.gradStudents ?? []).find(x => x.name === name);
+  if (g) g.morale = clamp(g.morale + delta / 100, 0, 1);
+  else adjustAllMorale(delta / 3);
+}
+
+// Publish as many papers of one kind as your drafts and knowledge allow, at
+// no energy cost (delegation). Respects the pre-defense cap. Returns n.
+function bulkPublish(type = "journal") {
+  const cost = window.PUB_COST?.[type];
+  if (!cost || state.levelIndex < PUB_UNLOCK_LEVEL) return 0;
+  let n = Math.floor((state.drafts ?? 0) / cost.drafts);
+  if (cost.knowledge > 0) n = Math.min(n, Math.floor((state.knowledge ?? 0) / cost.knowledge));
+  if (!state.flags?.dissertationDefended) n = Math.min(n, Math.max(0, PRE_DISSERTATION_PUB_CAP - calcTotalPapers()));
+  if (n <= 0) return 0;
+  state.drafts    -= n * cost.drafts;
+  state.knowledge -= n * cost.knowledge;
+  const tiers = addPapersBulk(n, type);
+  state.editorGoodwill = 0;
+  runHooks("published", n, tiers, type);
+  return n;
 }
 
 // ── Lab: money in, research out ──
@@ -1493,6 +1787,8 @@ function tickTenureClock() {
   if (state.levelIndex !== TENURE_TRACK_LEVEL) { state.timers.tenureClock = null; return; }
   if (state.timers.tenureClock == null) state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
 
+  // Your case is with the provost: the clock waits for the letter
+  if (foldHooks("tenureClockPaused", false)) return;
   const yearBefore = tenureClockYear();
   state.timers.tenureClock -= 1;
   if (state.timers.tenureClock <= 0) { denyTenure(); return; }
@@ -1506,7 +1802,16 @@ function tickTenureClock() {
 
 // Up or out: you move somewhere less prestigious and start over
 function denyTenure() {
+  const votedYes = !!state.flags.tenureGranted;
   state.stats.tenureDenials += 1;
+  // The review starts over at the new job: forget the old case
+  if (votedYes) {
+    state.flags.tenureGranted = false;
+    const before = state.cv.landmarks.length;
+    state.cv.landmarks = state.cv.landmarks.filter(l => l.type !== "tenure_review");
+    state.landmarksCompleted = Math.max(0, (state.landmarksCompleted ?? 0) - (before - state.cv.landmarks.length));
+  }
+  runHooks("tenureDenied", votedYes);
   state.universityPrestige = clamp(state.universityPrestige - TENURE_DENIAL_PRESTIGE, 0, 100);
   const name = assignUniversity();
   state.identity.resilience = (state.identity.resilience ?? 0) + 5;
@@ -1516,7 +1821,9 @@ function denyTenure() {
   ensureLevelLandmark();
 
   state.timers.tenureClock = TENURE_CLOCK_YEARS * ticksPerYear();
-  pushNews(`Tenure denied. You've taken a tenure-track job at ${name}. The clock starts over.`);
+  pushNews(votedYes
+    ? `Your department voted yes. The provost looked at your numbers and said no. You've taken a tenure-track job at ${name}. The clock starts over.`
+    : `Tenure denied. You've taken a tenure-track job at ${name}. The clock starts over.`);
 }
 
 // =====================================================================
@@ -1533,4 +1840,90 @@ function toggleTraitsModal() {
 function toggleTherapyFlag() {
   state.flags.therapyUnlocked = !state.flags.therapyUnlocked;
   render();
+}
+
+// =====================================================================
+// PAPERS ON THE DESK — small helpers every feature module uses to own a
+// panel. A module calls ensurePanel() once; the desk adopts the panel as a
+// paper; setPanelBody() only rewrites the inside when the markup changed,
+// so the button under your cursor isn't swapped out mid-click.
+// =====================================================================
+
+function escHTML(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function ensurePanel(id, title, icon) {
+  let el = document.getElementById(id);
+  if (el) return el;
+  const dash = document.getElementById("dashboard");
+  if (!dash) return null;
+  el = document.createElement("div");
+  el.className = "panel";
+  el.id = id;
+  el.dataset.paperTitle = title;
+  el.style.display = "none";
+  el.innerHTML = `<h2><i class="fa-solid ${icon}"></i> <span class="panel-title">${title}</span></h2><div class="panel-body"></div>`;
+  dash.appendChild(el);
+  return el;
+}
+
+// Replace an element's HTML only when it changed, so buttons inside it
+// survive the ten-times-a-second render and clicks land.
+function setHTML(el, html) {
+  if (!el || el.__html === html) return;
+  el.innerHTML = html;
+  el.__html = html;
+}
+
+function setPanelBody(el, html) {
+  const body = el?.querySelector(".panel-body");
+  if (!body || body.__html === html) return;
+  body.innerHTML = html;
+  body.__html = html;
+}
+
+function setPanelTitle(el, title) {
+  const t = el?.querySelector(".panel-title");
+  if (t && t.__html !== title) { t.innerHTML = title; t.__html = title; }
+}
+
+function showPanel(el, on) {
+  if (!el) return;
+  const want = on ? "" : "none";
+  if (el.style.display !== want) el.style.display = want;
+}
+
+// Update one live number inside a panel without rebuilding it
+function setLive(el, key, text) {
+  const n = el?.querySelector(`[data-live="${key}"]`);
+  if (n && n.textContent !== text) n.textContent = text;
+}
+
+// "40 energy, 12 drafts, $300"
+function costLabel(cost) {
+  if (!cost) return "";
+  const bits = [];
+  if (cost.energy)    bits.push(`${cost.energy} energy`);
+  if (cost.knowledge) bits.push(`${fmtBig(cost.knowledge)} knowledge`);
+  if (cost.drafts)    bits.push(`${fmtBig(cost.drafts)} drafts`);
+  if (cost.money)     bits.push(`$${fmtBig(cost.money)}`);
+  if (cost.funds)     bits.push(`$${fmtBig(cost.funds)} lab funds`);
+  return bits.join(", ");
+}
+
+// Big numbers: 9,999 → 10k → 2.6M → 4.1B → 1.2Qa ...
+const BIG_SUFFIXES = ["", "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+function fmtBig(n, digits = 3) {
+  if (typeof n !== "number" || Number.isNaN(n)) return "0";
+  if (!Number.isFinite(n)) return "∞";
+  const neg = n < 0; n = Math.abs(n);
+  if (n < 10000) {
+    const str = Number.isInteger(n) ? n.toLocaleString("en-US") : (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString("en-US"));
+    return (neg ? "−" : "") + str;
+  }
+  const tier = Math.min(BIG_SUFFIXES.length - 1, Math.floor(Math.log10(n) / 3));
+  const scaled = n / Math.pow(1000, tier);
+  const str = scaled.toPrecision(digits).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return (neg ? "−" : "") + str + BIG_SUFFIXES[tier];
 }

@@ -11,10 +11,14 @@ let tickCount = 0;
 
 // ── Game tick ─────────────────────────────────────────────────────────
 function tick() {
-  // Energy regeneration (respects burnout cooldown)
+  state.gameTicks = (state.gameTicks ?? 0) + 1;
+
+  // Energy regeneration (respects burnout cooldown). The bar grows with your
+  // career and your furniture; see maxEnergy() in helpers.js.
   if (!inCooldown()) {
-    const regenRate = ENERGY_REGEN_PER_TICK * (state.modifiers?.energyRegenMult ?? 1);
-    state.energy = Math.min(ENERGY_MAX, state.energy + regenRate);
+    state.energy = Math.min(maxEnergy(), state.energy + energyRegenPerTick());
+  } else if (state.energy > maxEnergy()) {
+    state.energy = maxEnergy();
   }
 
   // Passive perk ticks (study groups, etc.)
@@ -36,7 +40,10 @@ function tick() {
   if (tickCount % 10 === 0) {
     tryLevelUp();
     rebuildModifiers();
+    maybeCompleteLandmark();     // a finished landmark whose defense just ended
+    runHooks("second");
   }
+  runHooks("tick");
 
   // Landmark decay and advisor notes
   tickLandmarkDecay();
@@ -80,6 +87,13 @@ const MIGRATIONS = {
       s.papers.tiers = [[], old.slice()];
     }
     delete s.papers.buckets;
+    return s;
+  },
+
+  // v3 → v4: 1.0. Everything new has a default, so the merge does the work.
+  // A 0.7.1 save that already worked a shift keeps its job.
+  3: (s) => {
+    if ((s.stats?.shiftsWorked ?? 0) > 0) { s.perks = s.perks ?? {}; s.perks.get_a_job = true; }
     return s;
   }
 };
@@ -169,11 +183,13 @@ function loadGame() {
 function resetGame() {
   localStorage.removeItem(SAVE_KEY);
   window.state = cloneState(DEFAULT_STATE);
+  invalidatePaperStats();
   ensurePaperTiers();
   rollBirthTraitsIfNeeded();
   rebuildModifiers();
   ensureFoundationalOrder();
   seedOpeningNews();
+  runHooks("reset");
   render();
 }
 

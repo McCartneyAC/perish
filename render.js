@@ -12,6 +12,7 @@ function render() {
   renderLandmark();
   renderNews();
   renderLab();
+  runHooks("render");     // papers owned by the feature modules, then the desk
   renderDevInspector();   // no-op unless the dev modal is open
 }
 
@@ -38,7 +39,8 @@ function renderEnergy() {
     if (energyUI) energyUI.classList.add("burnout");
     if (label) label.textContent = "";
   } else {
-    const pct = clamp((state.energy / ENERGY_MAX) * 100, 0, 100);
+    const maxE = maxEnergy();
+    const pct = clamp((state.energy / maxE) * 100, 0, 100);
     bar.style.width      = pct + "%";
     bar.style.background = "linear-gradient(to bottom, #4f4b44, #2f2c27)";
     bar.style.opacity    = "1";
@@ -48,7 +50,7 @@ function renderEnergy() {
     }
     if (energyUI) energyUI.classList.remove("burnout");
     if (label) label.innerHTML =
-      `<i class="fa-solid fa-bed"></i> Energy: ${Math.floor(state.energy)} / ${ENERGY_MAX}`;
+      `<i class="fa-solid fa-bed"></i> Energy: ${Math.floor(state.energy)} / ${Math.floor(maxE)}`;
   }
 }
 
@@ -68,19 +70,19 @@ function renderCurrentStats() {
                   * (state.modifiers?.paperMult     ?? 1)
                   * (state.modifiers?.knowledgeMult ?? 1)).toFixed(1);
 
-  el.innerHTML = `
-    <div><strong><i class="fa-solid fa-brain"></i> Knowledge:</strong> ${Math.floor(state.knowledge)}</div>
-    <div><strong><i class="fa-solid fa-pen-fancy"></i> Write Cost:</strong> ${writeCost()} knowledge${draftsPerWrite() > 1 ? ` (+${draftsPerWrite()} drafts per write)` : ""}</div>
-    <div><strong><i class="fa-solid fa-book-open"></i> Textbook Study:</strong> +${tGain} knowledge (cost: ${TEXTBOOK_ENERGY_COST} energy)</div>
-    <div><strong><i class="fa-solid fa-glasses"></i> Paper Reading:</strong> +${pGain} knowledge (cost: ${PAPER_ENERGY_COST} energy)</div>
-    <div><strong><i class="fa-solid fa-scroll"></i> Drafts:</strong> ${Math.floor(state.drafts)}</div>
-    <div><strong><i class="fa-solid fa-book"></i> Publications:</strong> ${state.publications}</div>
-    <div><strong><i class="fa-brands fa-mendeley"></i> Citations:</strong> ${cites}</div>
-    <div><strong><i class="fa-solid fa-h"></i>-Index:</strong> ${hIdx}</div>
+  setHTML(el, `
+    <div><strong><i class="fa-solid fa-brain"></i> Knowledge:</strong> ${fmtBig(Math.floor(state.knowledge))}</div>
+    <div><strong><i class="fa-solid fa-pen-fancy"></i> Write Cost:</strong> ${fmtBig(writeCost())} knowledge${draftsPerWrite() > 1 ? ` (+${draftsPerWrite()} drafts per write)` : ""}</div>
+    <div><strong><i class="fa-solid fa-book-open"></i> Textbook Study:</strong> +${tGain} knowledge (cost: ${effectiveEnergyCost("study_textbooks", TEXTBOOK_ENERGY_COST)} energy)</div>
+    <div><strong><i class="fa-solid fa-glasses"></i> Paper Reading:</strong> +${fmtBig(Number(pGain))} knowledge (cost: ${effectiveEnergyCost("study_papers", PAPER_ENERGY_COST)} energy)</div>
+    <div><strong><i class="fa-solid fa-scroll"></i> Drafts:</strong> ${fmtBig(Math.floor(state.drafts))}</div>
+    <div><strong><i class="fa-solid fa-book"></i> Publications:</strong> ${fmtBig(state.publications)}</div>
+    <div><strong><i class="fa-brands fa-mendeley"></i> Citations:</strong> ${fmtBig(cites)}</div>
+    <div><strong><i class="fa-solid fa-h"></i>-Index:</strong> ${fmtBig(hIdx)}</div>
     <div><strong><i class="fa-solid fa-monument"></i> Landmarks:</strong> ${state.landmarksCompleted}</div>
     ${renderMoneyLines()}
     ${renderTenureClockLine()}
-  `;
+  `);
 }
 
 function renderMoneyLines() {
@@ -88,7 +90,7 @@ function renderMoneyLines() {
   const salary  = annualSalary();
   const perCred = tuitionPerCredit();
   let html = `<div style="margin-top:6px;"><strong><i class="fa-solid fa-wallet"></i> Money:</strong>
-    <span style="${money < 0 ? "color:#c0392b;" : ""}">${money < 0 ? "−" : ""}$${fmtMoney(Math.abs(money))}</span></div>`;
+    <span style="${money < 0 ? "color:#c0392b;" : ""}">${money < 0 ? "−" : ""}$${Math.abs(money) >= 1e6 ? fmtBig(Math.abs(money)) : fmtMoney(Math.abs(money))}</span></div>`;
   if (salary)  html += `<div><strong><i class="fa-solid fa-money-check"></i> Salary:</strong> $${fmtMoney(salary)}/yr</div>`;
   if (perCred) html += `<div><strong><i class="fa-solid fa-receipt"></i> Tuition:</strong> $${fmtMoney(tuitionSplit(perCred).you)} borrowed per draft</div>`;
   if (state.debt > 0) {
@@ -144,7 +146,7 @@ function renderLab() {
   const space = LAB_SPACES[state.lab.space ?? 0];
   const burn  = labAnnualCosts();
   const funds = state.lab.funds;
-  document.getElementById("hud_lab").innerHTML = `
+  setHTML(document.getElementById("hud_lab"), `
     <div><strong><i class="fa-solid fa-coins"></i> Lab Funds:</strong>
       <span style="${funds < 0 ? "color:#c0392b; font-weight:bold;" : ""}">${funds < 0 ? "−" : ""}$${fmtMoney(Math.abs(funds))}</span>
       ${burn ? `<span style="opacity:0.7;">(spending $${fmtMoney(burn)}/yr)</span>` : ""}</div>
@@ -152,7 +154,7 @@ function renderLab() {
     <div style="margin-top:4px;"><strong><i class="fa-solid fa-door-open"></i> Space:</strong> ${space.label}
       (${space.slots} student${space.slots === 1 ? "" : "s"})</div>
     <div style="font-size:0.85em; opacity:0.75; font-style:italic;">${space.blurb}</div>
-  `;
+  `);
 
   // Shop: next space, then gear not yet owned
   const shop = document.getElementById("lab_shop");
@@ -176,12 +178,12 @@ function renderLab() {
   const owned = Object.keys(state.lab.items ?? {}).map(id => LAB_ITEMS[id]?.label).filter(Boolean);
   let ownedEl = document.getElementById("lab_owned");
   if (!ownedEl) { ownedEl = document.createElement("div"); ownedEl.id = "lab_owned"; ownedEl.className = "lab-owned"; shop.after(ownedEl); }
-  ownedEl.innerHTML = owned.length ? `Owned: ${owned.join(", ")}` : "";
+  setHTML(ownedEl, owned.length ? `Owned: ${owned.join(", ")}` : "");
 
   // Roster
   const lab = state.gradStudents ?? [];
   const unpaid = funds < 0;
-  document.getElementById("lab_roster").innerHTML = (gradSlots() || lab.length || state.alumni) ? `
+  setHTML(document.getElementById("lab_roster"), (gradSlots() || lab.length || state.alumni) ? `
     <h3 style="margin:10px 0 4px;"><i class="fa-solid fa-user-graduate"></i> Students (${lab.length}/${gradSlots()})${state.alumni ? `, ${state.alumni} alumni citing you` : ""}</h3>
     ${lab.map(g => `
       <div class="lab-student">
@@ -190,7 +192,7 @@ function renderLab() {
         · next paper ${Math.floor(g.progress * 100)}%
         <div class="quirk">${g.quirk}</div>
       </div>`).join("")}
-  ` : "";
+  ` : "");
 }
 
 function renderCV() {
@@ -218,7 +220,7 @@ function renderCV() {
       <div style="margin-top:6px;">
         <strong>Needs:</strong><br>
         <i class="fa-solid fa-brain"></i> &ge; ${req.k},
-        <i class="fa-solid fa-scroll"></i> &ge; ${req.d},
+        <i class="fa-solid fa-scroll"></i> &ge; ${draftsRequired(state.levelIndex + 1)},
         <i class="fa-solid fa-book"></i> &ge; ${req.p},
         <i class="fa-brands fa-mendeley"></i> &ge; ${req.c},
         <i class="fa-solid fa-h"></i> &ge; ${req.h ?? 0},
@@ -266,6 +268,29 @@ function renderCV() {
     <div><strong><i class="fa-solid fa-bookmark"></i> Major:</strong> ${window.MAJORS?.[state.affiliations?.major]?.label ?? "undeclared"}</div>
   `;
 
+  // Advisors, past and present
+  const advisors = [...(state.advisorHistory ?? []).filter(a => !a.left).map(a => a.name), ...(state.advisor ? [state.advisor.name] : [])];
+  if (advisors.length) html += `<div><strong><i class="fa-solid fa-user-tie"></i> Advisors:</strong> ${advisors.map(escHTML).join("; ")}</div>`;
+  if (state.story?.erdos != null) html += `<div><strong><i class="fa-solid fa-diagram-project"></i> Erdős number:</strong> ${state.story.erdos}</div>`;
+  const fws = (state.frameworks?.slots ?? []).filter(Boolean).map(id => window.FRAMEWORKS?.[id]?.label).filter(Boolean);
+  if (fws.length) html += `<div><strong><i class="fa-solid fa-glasses"></i> Theoretical commitments:</strong> ${fws.join(", ")}</div>`;
+
+  // Temperament: words once you have them (social science, or therapy), numbers after therapy
+  const vis = state.traits?.visibility ?? "hidden";
+  if (vis !== "hidden" && window.TEMPERAMENT_READS) {
+    const rows = Object.keys(TEMPERAMENT_READS).map(k => {
+      const v = state.traits?.[k] ?? 50;
+      const read = TEMPERAMENT_READS[k][v >= 65 ? 2 : v >= 35 ? 1 : 0];
+      return `<div title="${k}">${read}${vis === "values" ? ` <span class="cv-trait-val">${Math.round(v)}</span>` : ""}</div>`;
+    }).join("");
+    html += `
+      <div style="margin-top:8px;">
+        <strong><i class="fa-solid fa-brain"></i> Temperament:</strong>
+        <div class="cv-temperament">${rows}</div>
+        ${vis === "labels" ? `<div class="cv-note">You know the words for it now. The numbers come later, and cost a copay.</div>` : ""}
+      </div>`;
+  }
+
   // Identity stats (only visible if therapy has been unlocked)
   if (state.flags?.therapyUnlocked) {
     const id = state.identity || {};
@@ -287,11 +312,11 @@ function renderCV() {
     html += `<div style="margin-top:8px;"><strong><i class="fa-solid fa-monument"></i> Landmarks:</strong></div>`;
     for (const lm of cv.landmarks) {
       const def = window.LANDMARKS?.[lm.type];
-      html += `<div style="padding-left:8px;">— ${def?.label ?? lm.type}${lm.title ? `: <em>${lm.title}</em>` : ""}</div>`;
+      html += `<div style="padding-left:8px;">— ${def?.label ?? lm.type}${lm.title ? `: <em>${escHTML(lm.title)}</em>` : ""}${lm.grade ? ` <span class="cv-grade">(${lm.grade})</span>` : ""}</div>`;
     }
   }
 
-  el.innerHTML = html;
+  setHTML(el, html);
 }
 
 function collegeStatusLabel() {
@@ -328,17 +353,25 @@ function renderLandmark() {
     })
     .join("");
 
-  el.innerHTML = `
-    <div class="landmark-label">${def.label}: <em>${phase?.label ?? ""}</em>${landmarkSlipping() ? ` <span class="landmark-slipping">(slipping)</span>` : ""}</div>
+  const title  = state.workingTitles?.[def.id];
+  const held   = progress >= def.totalProgress && landmarkHeld(def);
+  const mood   = typeof projectedGradeIndex === "function" && window.LANDMARK_GRADES?.[def.id]
+    ? `<span class="landmark-mood" title="What your committee would say if it met today: ${escHTML(LANDMARK_GRADES[def.id][projectedGradeIndex()])}">Committee mood: ${COMMITTEE_MOODS[projectedGradeIndex()]}</span>` : "";
+  setHTML(el, `
+    <div class="landmark-label">${def.label}: <em>${phase?.label ?? ""}</em>${landmarkSlipping() ? ` <span class="landmark-slipping">(slipping)</span>` : ""}${mood}</div>
+    ${title ? `<div class="landmark-title">"${escHTML(title)}" <button type="button" class="landmark-retitle" data-retitle="${def.id}" title="Every title is a working title">Retitle</button></div>` : ""}
     <div class="landmark-bar-outer">
-      <div class="landmark-bar-inner" style="width:${pct}%"></div>
+      <div class="landmark-bar-inner"></div>
     </div>
-    <div class="landmark-description">${phase?.description ?? ""}</div>
+    <div class="landmark-description">${held ? escHTML(landmarkHoldReason(def) ?? "Finished. Waiting on something.") : (phase?.description ?? "")}</div>
     <div class="landmark-sources">
-      <span>${Math.floor(progress)} / ${def.totalProgress}</span>
+      <span data-live="lm-progress"></span>
       <span>${sources}</span>
     </div>
-  `;
+  `);
+  const bar = el.querySelector(".landmark-bar-inner");
+  if (bar && bar.style.width !== `${pct.toFixed(1)}%`) bar.style.width = `${pct.toFixed(1)}%`;
+  setLive(el, "lm-progress", `${fmtBig(Math.floor(progress))} / ${fmtBig(def.totalProgress)}`);
 }
 
 // ── Action buttons ────────────────────────────────────────────────────
@@ -405,9 +438,9 @@ function renderPanelActions() {
     const wait   = Math.ceil(actionCooldownLeft(id) / 1000);
     const check  = wait > 0 ? { ok: false, reason: `ready in ${wait}s` }
                             : (action.canDo?.(state) ?? { ok: true });
-    const energy = typeof action.cost === "function"
+    const energy = effectiveEnergyCost(id, typeof action.cost === "function"
       ? Math.abs((action.cost(state) ?? []).find?.(d => d.path === "energy")?.value ?? 0)
-      : action.cost?.energy;
+      : action.cost?.energy);
     const extras = [energy ? `${energy} energy` : "", action.detail?.(state) ?? ""].filter(Boolean).join(", ");
     const icon   = action.icon ? `<i class="fa-solid ${action.icon}"></i> ` : "";
     btn.innerHTML = check.ok
@@ -520,7 +553,8 @@ function renderPerkButtons() {
       btn.id = elId;
       container.appendChild(btn);
     }
-    const visible  = isVisible(perk);
+    // Foundational texts live on the Reading List paper (reading.js)
+    const visible  = isVisible(perk) && !(perk.category === "foundational_text" && window.READING_SHELVES);
     const unlocked = !!state.perks[id];
     btn.style.display = visible ? "" : "none";
 
